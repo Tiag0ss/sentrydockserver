@@ -6,6 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { RunFlowChart, RunStatusLegend, type NodeStatusMap, type RunGraph } from '../_components/RunFlowChart';
+import { ActionIconButton, IconRerun } from '../_components/RunActionIcons';
 
 type RunStep = {
   id: string;
@@ -109,24 +110,17 @@ export default function RunDetailPage() {
             {t('runs.openFlow')}
           </Link>
         )}
-        <button
-          type="button"
-          onClick={() => { void rerun(); }}
-          disabled={rerunning}
-          style={{
-            marginLeft: 'auto',
-            background: 'var(--accent)',
-            color: 'var(--bg)',
-            border: 'none',
-            padding: '8px 14px',
-            borderRadius: 8,
-            cursor: rerunning ? 'wait' : 'pointer',
-            fontWeight: 600,
-            opacity: rerunning ? 0.7 : 1,
-          }}
-        >
-          {rerunning ? t('runs.rerunning') : t('runs.rerun')}
-        </button>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <ActionIconButton
+            title={t('runs.rerun')}
+            primary
+            disabled={rerunning}
+            onClick={() => { void rerun(); }}
+          >
+            <IconRerun title={t('runs.rerun')} />
+          </ActionIconButton>
+          <span style={{ fontSize: 13, color: 'var(--muted)' }}>{t('runs.rerun')}</span>
+        </div>
       </header>
       {rerunError && <p style={{ color: 'var(--danger)', margin: 0, fontSize: 13 }}>{rerunError}</p>}
 

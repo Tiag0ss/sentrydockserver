@@ -27,20 +27,49 @@ function flowNameMap(): Map<string, string> {
   return map;
 }
 
-function enrichRun<T extends { id: string; flowId: string; contextJson?: string | null }>(
-  r: T,
-  names: Map<string, string>,
-) {
+function enrichRun<T extends {
+  id: string;
+  flowId: string;
+  currentNodeId?: string | null;
+  contextJson?: string | null;
+}>(r: T, names: Map<string, string>, graphs?: Map<string, { nodes: Array<{ id: string; type?: string; data?: Record<string, unknown> }> }>) {
+  const graph = graphs?.get(r.flowId);
+  const node = r.currentNodeId && graph
+    ? graph.nodes.find((n) => n.id === r.currentNodeId)
+    : undefined;
+  const currentNodeType = node
+    ? String(node.type || node.data?.nodeType || '')
+    : (r.currentNodeId ? inferNodeTypeFromId(r.currentNodeId) : null);
+
   return {
     ...r,
     flowName: names.get(r.flowId) || r.flowId.slice(0, 8),
     context: r.contextJson ? JSON.parse(r.contextJson) : null,
+    currentNodeType: currentNodeType || null,
   };
+}
+
+function inferNodeTypeFromId(nodeId: string): string | null {
+  const m = nodeId.match(/^([a-z][a-z0-9_]*)-/i);
+  return m ? m[1] : null;
+}
+
+function flowGraphMap(): Map<string, { nodes: Array<{ id: string; type?: string; data?: Record<string, unknown> }> }> {
+  const map = new Map<string, { nodes: Array<{ id: string; type?: string; data?: Record<string, unknown> }> }>();
+  for (const f of flowsRepo.list()) {
+    try {
+      map.set(f.id, JSON.parse(f.graphJson));
+    } catch {
+      map.set(f.id, { nodes: [] });
+    }
+  }
+  return map;
 }
 
 export function listRuns(status?: string) {
   const names = flowNameMap();
-  return runsRepo.list(status).map((r) => enrichRun(r, names));
+  const graphs = flowGraphMap();
+  return runsRepo.list(status).map((r) => enrichRun(r, names, graphs));
 }
 
 export function getRun(id: string) {
@@ -383,6 +412,7 @@ export { unreadNotificationCount };
 
 export function getDashboard() {
   const names = flowNameMap();
+  const graphs = flowGraphMap();
   const active = runsRepo.active();
   const history = runsRepo.list('history').slice(0, 20);
   const upcoming = policiesRepo.listEnabled()
@@ -391,12 +421,14 @@ export function getDashboard() {
     .slice(0, 20);
   const agentRows = agentsRepo.list();
   const pendingUpdates = updateEventsRepo.listPending();
+
   const awaiting = active.filter((r) => r.status === 'awaiting_user' || r.status === 'waiting_approval');
+  const executing = active.filter((r) => r.status !== 'awaiting_user' && r.status !== 'waiting_approval');
 
   return {
-    activeRuns: active.map((r) => enrichRun(r, names)),
+    activeRuns: executing.map((r) => enrichRun(r, names, graphs)),
     upcomingPolicies: upcoming,
-    history: history.map((r) => enrichRun(r, names)),
+    history: history.map((r) => enrichRun(r, names, graphs)),
     agents: agentRows.map((a) => ({
       id: a.id,
       name: a.name,
@@ -405,11 +437,12 @@ export function getDashboard() {
       meta: a.metaJson ? JSON.parse(a.metaJson) : null,
     })),
     pendingUpdates,
-    attention: awaiting.map((r) => enrichRun(r, names)),
+    attention: awaiting.map((r) => enrichRun(r, names, graphs)),
     summary: {
       agentsOnline: agentRows.filter((a) => agentGateway.isOnline(a.id)).length,
-      activeRuns: active.length,
+      activeRuns: executing.length,
       pendingUpdates: pendingUpdates.length,
+      awaitingApproval: awaiting.length,
       unreadNotifications: unreadNotificationCount(),
     },
   };

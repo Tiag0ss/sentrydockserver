@@ -1,10 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+import { ActionIconButton, IconOpen, IconRerun, StatusPill } from './_components/RunActionIcons';
 
 type Run = {
   id: string;
@@ -12,26 +12,27 @@ type Run = {
   flowName: string;
   status: string;
   currentNodeId: string | null;
+  currentNodeType?: string | null;
   startedAt: string;
   finishedAt?: string | null;
   triggerSource: string;
+  dryRun?: boolean | number;
   context?: { containerName?: string; agentId?: string; image?: string } | null;
 };
 
-function statusColor(status: string): string {
-  if (status === 'success') return '#3dd68c';
-  if (status === 'failed' || status === 'aborted' || status === 'rejected') return 'var(--danger)';
-  if (status === 'waiting_approval' || status === 'awaiting_user') return 'var(--warn)';
-  if (status === 'running') return 'var(--accent)';
-  return 'var(--text)';
+function contextHint(r: Run): string | null {
+  const parts = [r.context?.containerName, r.context?.image].filter(Boolean);
+  return parts.length ? parts.join(' · ') : null;
 }
 
-function contextHint(r: Run): string | null {
-  const parts = [
-    r.context?.containerName,
-    r.context?.image,
-  ].filter(Boolean);
-  return parts.length ? parts.join(' · ') : null;
+function humanStepLabel(t: (key: string) => string, r: Run): string | null {
+  const type = r.currentNodeType
+    || (r.currentNodeId ? r.currentNodeId.match(/^([a-z][a-z0-9_]*)-/i)?.[1] : null);
+  if (!type) return null;
+  const key = `nodes.${type}`;
+  const translated = t(key);
+  if (translated !== key) return translated;
+  return type.replace(/_/g, ' ');
 }
 
 export default function RunsPage() {
@@ -63,77 +64,84 @@ export default function RunsPage() {
     }
   }
 
-  function RunRow({ r, showStep }: { r: Run; showStep?: boolean }) {
+  function RunCard({ r, showStep }: { r: Run; showStep?: boolean }) {
     const hint = contextHint(r);
     const busy = busyId === r.id;
     return (
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'minmax(140px, 1.4fr) minmax(90px, 0.7fr) minmax(80px, 0.6fr) minmax(120px, 1fr) auto',
-        gap: 12,
+      <article style={{
+        display: 'flex',
+        gap: 16,
         alignItems: 'center',
-        padding: '10px 4px',
-        borderBottom: '1px solid var(--border)',
-        fontSize: 14,
+        padding: '14px 16px',
+        background: 'var(--panel)',
+        border: '1px solid var(--border)',
+        borderRadius: 12,
       }}>
-        <div style={{ minWidth: 0 }}>
-          <Link href={`/runs/${r.id}`} style={{ fontWeight: 600, color: 'var(--text)', textDecoration: 'none' }}>
-            {r.flowName}
-          </Link>
-          <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 2 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 4 }}>
+            <strong style={{ fontSize: 15 }}>{r.flowName}</strong>
+            <StatusPill status={r.status} />
+            {r.dryRun ? (
+              <span style={{ fontSize: 11, color: 'var(--warn)' }}>dry-run</span>
+            ) : null}
+          </div>
+          <div style={{ color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
             <span title={r.id}>{r.id.slice(0, 8)}…</span>
+            {' · '}
+            <span>{r.triggerSource}</span>
+            {' · '}
+            <span>{formatDate(r.finishedAt || r.startedAt)}</span>
             {hint ? <> · {hint}</> : null}
-            {showStep && r.currentNodeId ? <> · {t('runs.step')} {r.currentNodeId}</> : null}
+            {showStep && humanStepLabel(t, r) ? (
+              <> · {t('runs.step')}: {humanStepLabel(t, r)}</>
+            ) : null}
           </div>
         </div>
-        <span style={{ color: statusColor(r.status), fontWeight: 600, fontSize: 13 }}>{r.status}</span>
-        <span style={{ color: 'var(--muted)', fontSize: 13 }}>{r.triggerSource}</span>
-        <span style={{ color: 'var(--muted)', fontSize: 13, textAlign: 'right' }}>
-          {formatDate(r.finishedAt || r.startedAt)}
-        </span>
-        <button
-          type="button"
-          onClick={() => { void rerun(r.id); }}
-          disabled={busy || busyId !== null}
-          title={t('runs.rerun')}
-          style={{
-            background: 'transparent',
-            border: '1px solid var(--border)',
-            color: 'var(--text)',
-            borderRadius: 8,
-            padding: '6px 10px',
-            cursor: busy ? 'wait' : 'pointer',
-            fontSize: 12,
-            fontWeight: 600,
-            whiteSpace: 'nowrap',
-            opacity: busyId !== null && !busy ? 0.5 : 1,
-          }}
-        >
-          {busy ? t('runs.rerunning') : t('runs.rerun')}
-        </button>
-      </div>
+
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+          <ActionIconButton
+            title={t('runs.openDetail')}
+            onClick={() => router.push(`/runs/${r.id}`)}
+          >
+            <IconOpen title={t('runs.openDetail')} />
+          </ActionIconButton>
+          <ActionIconButton
+            title={t('runs.rerun')}
+            primary
+            disabled={busy || (busyId !== null && !busy)}
+            onClick={() => { void rerun(r.id); }}
+          >
+            <IconRerun title={t('runs.rerun')} />
+          </ActionIconButton>
+        </div>
+      </article>
     );
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      <h1 style={{ margin: 0 }}>{t('runs.title')}</h1>
+      <header>
+        <h1 style={{ margin: 0 }}>{t('runs.title')}</h1>
+        <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: 14 }}>
+          {t('runs.subtitle')}
+        </p>
+      </header>
       {error && <p style={{ color: 'var(--danger)', margin: 0 }}>{error}</p>}
 
-      <section>
-        <h2 style={{ margin: '0 0 8px', fontSize: 16 }}>{t('runs.active')}</h2>
+      <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <h2 style={{ margin: 0, fontSize: 16 }}>{t('runs.active')}</h2>
         {active.length === 0 && (
           <p style={{ color: 'var(--muted)', margin: 0 }}>{t('runs.emptyActive')}</p>
         )}
-        {active.map((r) => <RunRow key={r.id} r={r} showStep />)}
+        {active.map((r) => <RunCard key={r.id} r={r} showStep />)}
       </section>
 
-      <section>
-        <h2 style={{ margin: '0 0 8px', fontSize: 16 }}>{t('runs.history')}</h2>
+      <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <h2 style={{ margin: 0, fontSize: 16 }}>{t('runs.history')}</h2>
         {history.length === 0 && (
           <p style={{ color: 'var(--muted)', margin: 0 }}>{t('runs.emptyHistory')}</p>
         )}
-        {history.map((r) => <RunRow key={r.id} r={r} />)}
+        {history.map((r) => <RunCard key={r.id} r={r} />)}
       </section>
     </div>
   );
