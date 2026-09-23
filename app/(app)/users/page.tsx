@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+import { tt } from '@/lib/i18n/translate';
 import Link from 'next/link';
 
 type UserRow = {
@@ -125,7 +126,7 @@ export default function UsersPage() {
         <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>{t('users.yourAccount')}</h2>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <strong>{me.username}</strong>
-          <Badge>{me.role}</Badge>
+          <Badge>{tt(t, 'roles', me.role)}</Badge>
           <Link href="/change-password" style={linkBtn}>{t('users.changeMyPassword')}</Link>
         </div>
       </section>

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+import { tt } from '@/lib/i18n/translate';
 import { RunFlowChart, RunStatusLegend, type NodeStatusMap, type RunGraph } from '../_components/RunFlowChart';
 import { ActionIconButton, IconRerun } from '../_components/RunActionIcons';
 
@@ -46,16 +47,8 @@ function stepStatusColor(status: string): string {
   return 'var(--muted)';
 }
 
-function statusLabelKey(status: string): string {
-  const map: Record<string, string> = {
-    success: 'runs.stepSuccess',
-    failed: 'runs.stepFailed',
-    rejected: 'runs.stepRejected',
-    running: 'runs.stepRunning',
-    interrupted: 'runs.stepInterrupted',
-    pending: 'runs.stepPending',
-  };
-  return map[status] || '';
+function statusLabel(t: (key: string) => string, status: string): string {
+  return tt(t, 'status', status);
 }
 
 export default function RunDetailPage() {
@@ -103,7 +96,7 @@ export default function RunDetailPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <header style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        <h1 style={{ margin: 0 }}>{run.flow?.name || `Run ${run.id.slice(0, 8)}…`}</h1>
+        <h1 style={{ margin: 0 }}>{run.flow?.name || t('runs.runFallback', { id: run.id.slice(0, 8) })}</h1>
         <span style={{ color: 'var(--muted)', fontSize: 14 }} title={run.id}>{run.id.slice(0, 8)}…</span>
         {run.flow && (
           <Link href="/flows" style={{ color: 'var(--muted)', fontSize: 14 }}>
@@ -127,7 +120,7 @@ export default function RunDetailPage() {
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', fontSize: 14 }}>
         <span>
           {t('runs.status')}:{' '}
-          <strong style={{ color: stepStatusColor(run.status) }}>{run.status}</strong>
+          <strong style={{ color: stepStatusColor(run.status) }}>{statusLabel(t, run.status)}</strong>
         </span>
         {run.currentNodeId ? (
           <span style={{ color: 'var(--muted)' }}>
@@ -174,9 +167,7 @@ export default function RunDetailPage() {
           const title = translated && translated !== typeKey
             ? translated
             : (s.label || s.nodeType || s.nodeId);
-          const statusText = statusLabelKey(s.status)
-            ? t(statusLabelKey(s.status))
-            : s.status;
+          const statusText = statusLabel(t, s.status);
           return (
             <div
               key={s.id}
@@ -241,7 +232,7 @@ export default function RunDetailPage() {
               <strong>{b.agentName || b.agentId.slice(0, 8)}</strong>
               {b.containerName ? <span style={{ color: 'var(--muted)' }}> · {b.containerName}</span> : null}
               {' — '}
-              <span style={{ color: stepStatusColor(b.status) }}>{b.status}</span>
+              <span style={{ color: stepStatusColor(b.status) }}>{statusLabel(t, b.status)}</span>
             </div>
           ))}
         </section>

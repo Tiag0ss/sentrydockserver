@@ -414,7 +414,7 @@ export function getDashboard() {
   const names = flowNameMap();
   const graphs = flowGraphMap();
   const active = runsRepo.active();
-  const history = runsRepo.list('history').slice(0, 20);
+  const history = runsRepo.list('history').slice(0, 200);
   const upcoming = policiesRepo.listEnabled()
     .filter((p) => p.nextRunAt)
     .sort((a, b) => (a.nextRunAt!.getTime() - b.nextRunAt!.getTime()))

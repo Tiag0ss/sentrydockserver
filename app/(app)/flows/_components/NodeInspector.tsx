@@ -4,13 +4,14 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Node } from '@xyflow/react';
 import { api } from '@/lib/api';
 import {
-  CONTEXT_FIELDS,
+  CONTEXT_FIELD_VALUES,
   TEMPLATE_TAGS,
   getNodeOutputs,
   inputStyle,
 } from './flowConstants';
 import { SearchSelect, type SearchOption } from './SearchSelect';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+import { tt } from '@/lib/i18n/translate';
 
 type Agent = { id: string; name: string; status: string; online: boolean };
 type SecretMeta = { id: string; name: string; type: string };
@@ -96,18 +97,18 @@ export function NodeInspector({ selectedNode, onPatch }: Props) {
     () => agents.map((a) => ({
       value: a.id,
       label: a.name,
-      hint: `${a.online ? 'online' : a.status} · ${a.id.slice(0, 8)}…`,
+      hint: `${a.online ? t('agents.online') : tt(t, 'status', a.status)} · ${a.id.slice(0, 8)}…`,
     })),
-    [agents],
+    [agents, t],
   );
 
   const secretOptions: SearchOption[] = useMemo(
     () => secrets.map((s) => ({
       value: s.id,
       label: s.name,
-      hint: s.type,
+      hint: tt(t, 'secretTypes', s.type),
     })),
-    [secrets],
+    [secrets, t],
   );
 
   const containerOptions: SearchOption[] = useMemo(
@@ -214,7 +215,7 @@ export function NodeInspector({ selectedNode, onPatch }: Props) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
-      <div>{t('inspector.type')}: {type}</div>
+      <div>{t('inspector.type')}: {tt(t, 'nodes', type)}</div>
       <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12, lineHeight: 1.4 }}>
         {hint}
       </p>
@@ -314,10 +315,13 @@ export function NodeInspector({ selectedNode, onPatch }: Props) {
         <SearchSelect
           label={t('inspector.contextField')}
           value={String(selectedNode.data.field || 'updateAvailable')}
-          options={CONTEXT_FIELDS}
+          options={CONTEXT_FIELD_VALUES.map((value) => ({
+            value,
+            label: tt(t, 'contextFields', value),
+          }))}
           onChange={(v) => patch('field', v || 'updateAvailable')}
           placeholder={t('common.search')}
-          emptyLabel="updateAvailable"
+          emptyLabel={tt(t, 'contextFields', 'updateAvailable')}
         />
       )}
 
@@ -333,10 +337,9 @@ export function NodeInspector({ selectedNode, onPatch }: Props) {
               value={String(selectedNode.data.level || 'auto')}
               onChange={(e) => patch('level', e.target.value === 'auto' ? '' : e.target.value)}
             >
-              <option value="auto">auto</option>
-              <option value="info">info</option>
-              <option value="warn">warn</option>
-              <option value="error">error</option>
+              {(['auto', 'info', 'warn', 'error'] as const).map((level) => (
+                <option key={level} value={level}>{tt(t, 'notifyLevel', level)}</option>
+              ))}
             </select>
           </label>
         </>
@@ -372,9 +375,9 @@ export function NodeInspector({ selectedNode, onPatch }: Props) {
             value={String(selectedNode.data.mode || 'wait_all')}
             onChange={(e) => patch('mode', e.target.value)}
           >
-            <option value="wait_all">wait_all</option>
-            <option value="continue_successes">continue_successes</option>
-            <option value="await_user">await_user</option>
+            {(['wait_all', 'continue_successes', 'await_user'] as const).map((mode) => (
+              <option key={mode} value={mode}>{tt(t, 'joinMode', mode)}</option>
+            ))}
           </select>
         </label>
       )}

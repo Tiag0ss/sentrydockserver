@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { io } from 'socket.io-client';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+import { tt } from '@/lib/i18n/translate';
 import type { NotificationItem } from '@/components/NotificationBell';
 
 type ListResponse = { items: NotificationItem[]; unreadCount: number };
@@ -100,7 +101,7 @@ export default function NotificationsPage() {
               </div>
               <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 <span>{formatDate(n.ts)}</span>
-                <span style={{ textTransform: 'uppercase', color: levelColor(n.level), fontWeight: 600 }}>{n.level}</span>
+                <span style={{ textTransform: 'uppercase', color: levelColor(n.level), fontWeight: 600 }}>{tt(t, 'notifyLevel', n.level)}</span>
                 {n.flowName && <span>{n.flowName}</span>}
                 {n.containerName && <span>{n.containerName}</span>}
                 {n.image && <span>{n.image}</span>}

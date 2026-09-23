@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+import { tt } from '@/lib/i18n/translate';
 import { ActionIconButton, IconOpen, IconRerun, StatusPill } from './_components/RunActionIcons';
 
 type Run = {
@@ -82,13 +83,13 @@ export default function RunsPage() {
             <strong style={{ fontSize: 15 }}>{r.flowName}</strong>
             <StatusPill status={r.status} />
             {r.dryRun ? (
-              <span style={{ fontSize: 11, color: 'var(--warn)' }}>dry-run</span>
+              <span style={{ fontSize: 11, color: 'var(--warn)' }}>{t('runs.dryRunBadge')}</span>
             ) : null}
           </div>
           <div style={{ color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
             <span title={r.id}>{r.id.slice(0, 8)}…</span>
             {' · '}
-            <span>{r.triggerSource}</span>
+            <span>{tt(t, 'trigger', r.triggerSource)}</span>
             {' · '}
             <span>{formatDate(r.finishedAt || r.startedAt)}</span>
             {hint ? <> · {hint}</> : null}

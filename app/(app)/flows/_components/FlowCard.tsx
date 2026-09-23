@@ -3,6 +3,7 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { getNodeOutputs } from './flowConstants';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+import { tt } from '@/lib/i18n/translate';
 
 const portLabel: React.CSSProperties = {
   fontSize: 10,
@@ -87,7 +88,7 @@ export function FlowCard({ data, selected }: NodeProps) {
           textTransform: 'uppercase',
           letterSpacing: 0.3,
         }}>
-          {runStatus}
+          {tt(t, 'status', runStatus)}
           {Number(data.runAttempts) > 1 ? ` · ×${String(data.runAttempts)}` : ''}
         </div>
       )}

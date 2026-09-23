@@ -300,7 +300,10 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
       method: 'POST',
       body: JSON.stringify({ dryRun }),
     });
-    setMsg(`Run ${res.runId}${dryRun ? ' (dry-run)' : ''}`);
+    setMsg(t('runs.runStarted', {
+      id: res.runId.slice(0, 8),
+      dry: dryRun ? t('runs.runStartedDry') : '',
+    }));
   }
 
   async function exportFlow() {

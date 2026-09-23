@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+import { tt } from '@/lib/i18n/translate';
 
 export default function SecretsPage() {
   const { t } = useI18n();
@@ -32,14 +33,14 @@ export default function SecretsPage() {
       <div style={{ display: 'grid', gap: 8, maxWidth: 420 }}>
         <input placeholder={t('secrets.name')} value={name} onChange={(e) => setName(e.target.value)} style={input} />
         <select value={type} onChange={(e) => setType(e.target.value)} style={input}>
-          <option value="registry_credentials">registry_credentials</option>
-          <option value="generic_token">generic_token</option>
-          <option value="header_secret">header_secret</option>
+          <option value="registry_credentials">{t('secretTypes.registry_credentials')}</option>
+          <option value="generic_token">{t('secretTypes.generic_token')}</option>
+          <option value="header_secret">{t('secretTypes.header_secret')}</option>
         </select>
         {type === 'registry_credentials' ? (
           <>
-            <input placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} style={input} />
-            <input placeholder="Password/token" type="password" value={password} onChange={(e) => setPassword(e.target.value)} style={input} />
+            <input placeholder={t('secrets.username')} value={username} onChange={(e) => setUsername(e.target.value)} style={input} />
+            <input placeholder={t('secrets.passwordToken')} type="password" value={password} onChange={(e) => setPassword(e.target.value)} style={input} />
             <input placeholder={t('secrets.serverOptional')} value={serveraddress} onChange={(e) => setServeraddress(e.target.value)} style={input} />
           </>
         ) : (
@@ -49,7 +50,7 @@ export default function SecretsPage() {
       </div>
       {rows.map((r) => (
         <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', padding: 8 }}>
-          <span>{r.name} <code style={{ color: 'var(--muted)' }}>{r.type}</code> · id {r.id.slice(0, 8)}</span>
+          <span>{r.name} <code style={{ color: 'var(--muted)' }}>{tt(t, 'secretTypes', r.type)}</code> · {r.id.slice(0, 8)}</span>
           <button type="button" onClick={async () => { await api(`/secrets/${r.id}`, { method: 'DELETE' }); await load(); }}
             style={{ background: 'transparent', border: '1px solid var(--danger)', color: 'var(--danger)', borderRadius: 6, cursor: 'pointer' }}>{t('secrets.delete')}</button>
         </div>

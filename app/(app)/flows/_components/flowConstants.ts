@@ -51,16 +51,22 @@ export function normalizeHandle(type: string, handle: string | null | undefined)
   return handle;
 }
 
-export const CONTEXT_FIELDS = [
-  { value: 'updateAvailable', label: 'updateAvailable' },
-  { value: 'image', label: 'image' },
-  { value: 'agentId', label: 'agentId' },
-  { value: 'containerName', label: 'containerName' },
-  { value: 'newDigest', label: 'newDigest' },
-  { value: 'oldDigest', label: 'oldDigest' },
-  { value: 'error', label: 'error' },
-  { value: 'approvalDecision', label: 'approvalDecision' },
-];
+export const CONTEXT_FIELD_VALUES = [
+  'updateAvailable',
+  'image',
+  'agentId',
+  'containerName',
+  'newDigest',
+  'oldDigest',
+  'error',
+  'approvalDecision',
+] as const;
+
+/** @deprecated Prefer CONTEXT_FIELD_VALUES + t('contextFields.*') */
+export const CONTEXT_FIELDS = CONTEXT_FIELD_VALUES.map((value) => ({
+  value,
+  label: value,
+}));
 
 /** Tags disponíveis em Notify / Webhook (`{{tag}}`). */
 export const TEMPLATE_TAGS = [

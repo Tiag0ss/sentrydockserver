@@ -2,10 +2,20 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+import { tt } from '@/lib/i18n/translate';
 import { ActionIconButton, IconOpen, IconRerun, StatusPill } from '../runs/_components/RunActionIcons';
+
+const HISTORY_PAGE_SIZE_KEY = 'sentrydock.dashboard.historyPageSize';
+const HISTORY_PAGE_SIZES = [10, 25, 50, 100] as const;
+
+function readHistoryPageSize(): number {
+  if (typeof window === 'undefined') return 10;
+  const raw = Number(window.localStorage.getItem(HISTORY_PAGE_SIZE_KEY));
+  return (HISTORY_PAGE_SIZES as readonly number[]).includes(raw) ? raw : 10;
+}
 
 export type DashboardData = {
   activeRuns: Array<{
@@ -62,38 +72,6 @@ function humanStepLabel(
   const translated = t(key);
   if (translated !== key) return translated;
   return type.replace(/_/g, ' ');
-}
-
-export function Stat({ label, value, href }: { label: string; value: number; href?: string }) {
-  const inner = (
-    <>
-      <div style={{ color: 'var(--muted)', fontSize: 13 }}>{label}</div>
-      <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'IBM Plex Mono, monospace' }}>{value}</div>
-    </>
-  );
-  const boxStyle: React.CSSProperties = {
-    background: 'var(--panel)',
-    border: '1px solid var(--border)',
-    borderRadius: 12,
-    padding: 16,
-    display: 'block',
-    color: 'inherit',
-    textDecoration: 'none',
-    transition: 'border-color 0.15s ease',
-  };
-  if (href) {
-    return (
-      <Link
-        href={href}
-        style={boxStyle}
-        onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; }}
-      >
-        {inner}
-      </Link>
-    );
-  }
-  return <div style={boxStyle}>{inner}</div>;
 }
 
 export function Section({
@@ -187,6 +165,32 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [pageSize, setPageSize] = useState(10);
+  const [page, setPage] = useState(0);
+
+  useEffect(() => {
+    setPageSize(readHistoryPageSize());
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(HISTORY_PAGE_SIZE_KEY, String(pageSize));
+  }, [pageSize]);
+
+  const historyTotal = data.history.length;
+  const pageCount = Math.max(1, Math.ceil(historyTotal / pageSize) || 1);
+  const safePage = Math.min(page, pageCount - 1);
+
+  useEffect(() => {
+    if (page !== safePage) setPage(safePage);
+  }, [page, safePage]);
+
+  const historySlice = useMemo(() => {
+    const start = safePage * pageSize;
+    return data.history.slice(start, start + pageSize);
+  }, [data.history, safePage, pageSize]);
+
+  const showingFrom = historyTotal === 0 ? 0 : safePage * pageSize + 1;
+  const showingTo = Math.min((safePage + 1) * pageSize, historyTotal);
 
   async function rerun(runId: string) {
     setBusyId(runId);
@@ -203,12 +207,6 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
 
   return (
     <>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-        <Stat label={t('dashboard.agentsOnline')} value={data.summary.agentsOnline} href="/agents" />
-        <Stat label={t('dashboard.activeRuns')} value={data.summary.activeRuns} href="/runs" />
-        <Stat label={t('dashboard.pendingUpdates')} value={data.summary.pendingUpdates} />
-      </div>
-
       {error && <p style={{ color: 'var(--danger)', margin: 0 }}>{error}</p>}
 
       <Section
@@ -228,7 +226,7 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
             <RunDashRow
               key={a.id}
               id={a.id}
-              flowName={a.flowName || `Run ${a.id.slice(0, 8)}…`}
+              flowName={a.flowName || t('runs.runFallback', { id: a.id.slice(0, 8) })}
               status={a.status}
               meta={[
                 t('dashboard.needsAction'),
@@ -254,7 +252,7 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
               flowName={r.flowName}
               status={r.status}
               meta={[
-                r.triggerSource,
+                r.triggerSource ? tt(t, 'trigger', r.triggerSource) : null,
                 formatDate(r.startedAt),
                 step ? `${t('dashboard.step')}: ${step}` : null,
                 r.context?.containerName,
@@ -279,17 +277,43 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
 
       <Section
         title={t('dashboard.recentHistory')}
-        action={<Link href="/runs" style={{ fontSize: 13, color: 'var(--muted)' }}>{t('dashboard.viewRuns')}</Link>}
+        action={(
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--muted)' }}>
+              {t('dashboard.historyPageSize')}
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setPage(0);
+                }}
+                style={{
+                  background: 'var(--bg)',
+                  color: 'inherit',
+                  border: '1px solid var(--border)',
+                  borderRadius: 6,
+                  padding: '4px 8px',
+                  fontSize: 13,
+                }}
+              >
+                {HISTORY_PAGE_SIZES.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </label>
+            <Link href="/runs" style={{ fontSize: 13, color: 'var(--muted)' }}>{t('dashboard.viewRuns')}</Link>
+          </div>
+        )}
       >
-        {data.history.length === 0 && <Empty>{t('runs.emptyHistory')}</Empty>}
-        {data.history.map((r) => (
+        {historyTotal === 0 && <Empty>{t('runs.emptyHistory')}</Empty>}
+        {historySlice.map((r) => (
           <RunDashRow
             key={r.id}
             id={r.id}
             flowName={r.flowName}
             status={r.status}
             meta={[
-              r.triggerSource,
+              r.triggerSource ? tt(t, 'trigger', r.triggerSource) : null,
               formatDate(r.finishedAt || r.startedAt || null),
               r.context?.containerName,
             ].filter(Boolean).join(' · ')}
@@ -297,6 +321,61 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
             onRerun={() => { void rerun(r.id); }}
           />
         ))}
+        {historyTotal > 0 && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            flexWrap: 'wrap',
+            paddingTop: 8,
+            marginTop: 4,
+          }}
+          >
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+              {t('dashboard.historyShowing', { from: showingFrom, to: showingTo, total: historyTotal })}
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                type="button"
+                disabled={safePage <= 0}
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid var(--border)',
+                  borderRadius: 6,
+                  padding: '4px 10px',
+                  cursor: safePage <= 0 ? 'default' : 'pointer',
+                  opacity: safePage <= 0 ? 0.4 : 1,
+                  color: 'inherit',
+                  fontSize: 13,
+                }}
+              >
+                {t('dashboard.historyPrev')}
+              </button>
+              <span style={{ fontSize: 12, color: 'var(--muted)', minWidth: 90, textAlign: 'center' }}>
+                {t('dashboard.historyPage', { page: safePage + 1, total: pageCount })}
+              </span>
+              <button
+                type="button"
+                disabled={safePage >= pageCount - 1}
+                onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid var(--border)',
+                  borderRadius: 6,
+                  padding: '4px 10px',
+                  cursor: safePage >= pageCount - 1 ? 'default' : 'pointer',
+                  opacity: safePage >= pageCount - 1 ? 0.4 : 1,
+                  color: 'inherit',
+                  fontSize: 13,
+                }}
+              >
+                {t('dashboard.historyNext')}
+              </button>
+            </div>
+          </div>
+        )}
       </Section>
     </>
   );

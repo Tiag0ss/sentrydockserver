@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+import { tt } from '@/lib/i18n/translate';
 
 type Agent = { id: string; name: string; status: string; online: boolean; transport: string; protocolVersion: number | null; token?: string };
 
@@ -45,8 +46,10 @@ export default function AgentsPage() {
       {agents.map((a) => (
         <div key={a.id} style={{ padding: 12, border: '1px solid var(--border)', borderRadius: 8, justifyContent: 'space-between', display: 'flex' }}>
           <div>
-            <strong>{a.name}</strong> · {a.transport} · proto {a.protocolVersion ?? '—'}
-            <div style={{ color: a.online ? 'var(--ok)' : 'var(--muted)' }}>{a.online ? t('agents.online') : a.status}</div>
+            <strong>{a.name}</strong> · {a.transport} · {t('agents.protocol')} {a.protocolVersion ?? '—'}
+            <div style={{ color: a.online ? 'var(--ok)' : 'var(--muted)' }}>
+              {a.online ? t('agents.online') : (a.status ? tt(t, 'status', a.status) : t('agents.offline'))}
+            </div>
           </div>
           <button type="button" onClick={async () => { await api(`/agents/${a.id}`, { method: 'DELETE' }); await load(); }}
             style={{ background: 'transparent', border: '1px solid var(--danger)', color: 'var(--danger)', borderRadius: 6, cursor: 'pointer' }}>

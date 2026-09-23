@@ -18,7 +18,7 @@ export default function TemplatesPage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <h1 style={{ margin: 0 }}>{t('templates.title')}</h1>
       <div style={{ display: 'grid', gap: 8, maxWidth: 520 }}>
-        <input placeholder="key" value={key} onChange={(e) => setKey(e.target.value)} style={input} />
+        <input placeholder={t('templates.key')} value={key} onChange={(e) => setKey(e.target.value)} style={input} />
         <input placeholder={t('templates.name')} value={name} onChange={(e) => setName(e.target.value)} style={input} />
         <textarea value={body} onChange={(e) => setBody(e.target.value)} style={{ ...input, minHeight: 100 }} />
         <button type="button" style={btn} onClick={async () => {

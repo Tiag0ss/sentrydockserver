@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { LanguageSwitcher } from '@/lib/i18n/LanguageSwitcher';
 import { NotificationBell } from '@/components/NotificationBell';
+import { HeaderStats } from '@/components/HeaderStats';
 
 const NAV_KEYS = [
   { href: '/', key: 'nav.dashboard' },
@@ -55,7 +56,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (!ready) return <div style={{ padding: 40 }}>{t('common.loading')}</div>;
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', minHeight: '100vh' }}>
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: '220px 1fr',
+      position: 'fixed',
+      inset: 0,
+      overflow: 'hidden',
+    }}>
       <aside style={{
         borderRight: '1px solid var(--border)',
         background: 'rgba(20,28,46,0.9)',
@@ -63,29 +70,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         display: 'flex',
         flexDirection: 'column',
         gap: 8,
+        height: '100%',
+        overflow: 'hidden',
       }}>
-        <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontWeight: 700, fontSize: 18, marginBottom: 16, letterSpacing: 0.5 }}>
+        <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontWeight: 700, fontSize: 18, marginBottom: 16, letterSpacing: 0.5, flexShrink: 0 }}>
           Sentry<span style={{ color: 'var(--accent)' }}>Dock</span>
         </div>
-        {NAV_KEYS.map((n) => {
-          const active = pathname === n.href || (n.href !== '/' && pathname.startsWith(n.href));
-          return (
-            <Link
-              key={n.href}
-              href={n.href}
-              style={{
-                padding: '10px 12px',
-                borderRadius: 8,
-                color: active ? 'var(--bg)' : 'var(--text)',
-                background: active ? 'var(--accent)' : 'transparent',
-                fontWeight: active ? 600 : 400,
-              }}
-            >
-              {t(n.key)}
-            </Link>
-          );
-        })}
-        <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <nav style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0, overflowY: 'auto' }}>
+          {NAV_KEYS.map((n) => {
+            const active = pathname === n.href || (n.href !== '/' && pathname.startsWith(n.href));
+            return (
+              <Link
+                key={n.href}
+                href={n.href}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  color: active ? 'var(--bg)' : 'var(--text)',
+                  background: active ? 'var(--accent)' : 'transparent',
+                  fontWeight: active ? 600 : 400,
+                  flexShrink: 0,
+                }}
+              >
+                {t(n.key)}
+              </Link>
+            );
+          })}
+        </nav>
+        <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10, flexShrink: 0, paddingTop: 12 }}>
           <LanguageSwitcher />
           <button
             type="button"
@@ -104,23 +116,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: '100vh' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%', overflow: 'hidden' }}>
         <header style={{
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'flex-end',
-          gap: 12,
-          padding: '12px 28px',
+          justifyContent: 'space-between',
+          gap: 16,
+          padding: '10px 28px',
           borderBottom: '1px solid var(--border)',
           background: 'rgba(12, 18, 34, 0.65)',
           backdropFilter: 'blur(8px)',
-          position: 'sticky',
-          top: 0,
+          flexShrink: 0,
           zIndex: 40,
         }}>
-          <NotificationBell />
+          <HeaderStats />
+          <div style={{ flexShrink: 0 }}>
+            <NotificationBell />
+          </div>
         </header>
-        <main style={{ padding: 28, overflow: 'auto', flex: 1 }}>{children}</main>
+        <main style={{ padding: 28, overflow: 'auto', flex: 1, minHeight: 0 }}>{children}</main>
       </div>
     </div>
   );

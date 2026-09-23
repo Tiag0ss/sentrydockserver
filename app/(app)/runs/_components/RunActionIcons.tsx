@@ -1,6 +1,8 @@
 'use client';
 
 import type { CSSProperties, ReactNode } from 'react';
+import { useI18n } from '@/lib/i18n/I18nProvider';
+import { tt } from '@/lib/i18n/translate';
 
 const iconBtn: CSSProperties = {
   display: 'inline-flex',
@@ -73,11 +75,13 @@ export function ActionIconButton({
 }
 
 export function StatusPill({ status, label }: { status: string; label?: string }) {
+  const { t } = useI18n();
   const color = status === 'success' ? '#3dd68c'
     : status === 'failed' || status === 'aborted' || status === 'rejected' ? 'var(--danger)'
       : status === 'waiting_approval' || status === 'awaiting_user' || status === 'interrupted' ? 'var(--warn)'
         : status === 'running' ? 'var(--accent)'
           : 'var(--muted)';
+  const text = label || tt(t, 'status', status);
   return (
     <span style={{
       fontSize: 11,
@@ -90,7 +94,7 @@ export function StatusPill({ status, label }: { status: string; label?: string }
       padding: '3px 9px',
       whiteSpace: 'nowrap',
     }}>
-      {label || status}
+      {text}
     </span>
   );
 }
