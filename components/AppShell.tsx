@@ -6,6 +6,7 @@ import { api, clearToken, getToken } from '@/lib/api';
 import { useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { LanguageSwitcher } from '@/lib/i18n/LanguageSwitcher';
+import { NotificationBell } from '@/components/NotificationBell';
 
 const NAV_KEYS = [
   { href: '/', key: 'nav.dashboard' },
@@ -102,7 +103,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </button>
         </div>
       </aside>
-      <main style={{ padding: 28, overflow: 'auto' }}>{children}</main>
+
+      <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: '100vh' }}>
+        <header style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+          gap: 12,
+          padding: '12px 28px',
+          borderBottom: '1px solid var(--border)',
+          background: 'rgba(12, 18, 34, 0.65)',
+          backdropFilter: 'blur(8px)',
+          position: 'sticky',
+          top: 0,
+          zIndex: 40,
+        }}>
+          <NotificationBell />
+        </header>
+        <main style={{ padding: 28, overflow: 'auto', flex: 1 }}>{children}</main>
+      </div>
     </div>
   );
 }

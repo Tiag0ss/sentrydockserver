@@ -4,7 +4,7 @@ import { runsRepo } from '../repositories/domainRepo';
 import { agentGateway } from './agentGateway';
 import { audit } from './audit';
 import { getSecretPlain } from './secretsService';
-import logger from '../utils/logger';
+import { createNotification } from './notificationsService';
 
 export type FlowNode = {
   id: string;
@@ -24,6 +24,22 @@ export type FlowGraph = { nodes: FlowNode[]; edges: FlowEdge[] };
 
 type RunContext = Record<string, unknown>;
 
+/** Nodes that emit side-effects only — never decide the run outcome. */
+const SIDE_EFFECT_NODE_TYPES = new Set(['notify', 'webhook']);
+
+function setRunOutcome(ctx: RunContext, outcome: 'success' | 'failed' | 'rejected') {
+  const current = ctx.__runOutcome ? String(ctx.__runOutcome) : null;
+  // Once failed/rejected, do not downgrade to success via a later happy branch
+  if (current === 'failed' || current === 'rejected') return;
+  ctx.__runOutcome = outcome;
+}
+
+function finalizeRunStatus(ctx: RunContext): 'success' | 'failed' | 'rejected' {
+  const o = String(ctx.__runOutcome || 'success');
+  if (o === 'failed' || o === 'rejected') return o;
+  return 'success';
+}
+
 function parseGraph(json: string): FlowGraph {
   return JSON.parse(json) as FlowGraph;
 }
@@ -36,8 +52,21 @@ function getRetries(node: FlowNode): number {
 function renderTemplate(body: string, ctx: RunContext): string {
   return body.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
     const v = ctx[key];
-    return v == null ? '' : String(v);
+    if (v == null) return '';
+    if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return String(v);
+    try {
+      return JSON.stringify(v);
+    } catch {
+      return String(v);
+    }
   });
+}
+
+function recordNodeFailure(ctx: RunContext, node: FlowNode, error: string) {
+  ctx.error = error;
+  ctx.lastError = error;
+  ctx.failedNodeId = node.id;
+  ctx.failedNodeType = node.type;
 }
 
 export function acquireLock(lockKey: string): boolean {
@@ -182,6 +211,20 @@ export async function userContinueRun(runId: string, opts: { continue: boolean; 
     const decision = opts.continue ? 'approved' : 'rejected';
     ctx.__nextHandle = decision;
     ctx.approvalDecision = decision;
+    if (decision === 'rejected') {
+      setRunOutcome(ctx, 'rejected');
+      ctx.error = 'rejected';
+      ctx.lastError = 'rejected';
+      if (run.currentNodeId) {
+        ctx.failedNodeId = run.currentNodeId;
+        ctx.failedNodeType = 'wait_approval';
+      }
+    } else {
+      delete ctx.error;
+      delete ctx.lastError;
+      delete ctx.failedNodeId;
+      delete ctx.failedNodeType;
+    }
     if (run.currentNodeId) {
       await upsertStep(
         runId,
@@ -331,12 +374,25 @@ async function executeNode(
           break;
         }
         case 'notify': {
-          await audit({
-            actor: 'system',
-            action: 'notify',
-            flowRunId: runId,
-            payload: { message: node.data.message || 'notify', ctx },
-          });
+          try {
+            const message = renderTemplate(String(node.data.message || 'notify'), ctx);
+            createNotification({
+              message,
+              flowRunId: runId,
+              level: String(node.data.level || ''),
+              ctx,
+            });
+          } catch (err) {
+            logger.warn('notify failed (ignored for run outcome)', {
+              runId,
+              err: err instanceof Error ? err.message : String(err),
+            });
+            await upsertStep(runId, node.id, branchId, 'failed', {
+              lastError: err instanceof Error ? err.message : String(err),
+              finishedAt: new Date(),
+            });
+            return 'success';
+          }
           break;
         }
         case 'webhook': {
@@ -348,14 +404,39 @@ async function executeNode(
             'Content-Type': 'application/json',
             ...((node.data.headers as Record<string, string>) || {}),
           };
-          const res = await fetch(url, { method, headers, body });
-          await audit({
-            actor: 'system',
-            action: 'webhook.sent',
-            flowRunId: runId,
-            payload: { url: url.replace(/\/\/.*@/, '//***@'), status: res.status },
-          });
-          if (!res.ok) throw new Error(`Webhook HTTP ${res.status}`);
+          try {
+            const res = await fetch(url, { method, headers, body });
+            await audit({
+              actor: 'system',
+              action: 'webhook.sent',
+              flowRunId: runId,
+              payload: { url: url.replace(/\/\/.*@/, '//***@'), status: res.status, bodyPreview: body.slice(0, 500) },
+            });
+            if (!res.ok) {
+              ctx.__nextHandle = 'error';
+              await upsertStep(runId, node.id, branchId, 'failed', {
+                lastError: `Webhook HTTP ${res.status}`,
+                finishedAt: new Date(),
+              });
+              // Side-effect only — do not fail the run
+              return 'success';
+            }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            logger.warn('webhook failed (ignored for run outcome)', { runId, err: msg });
+            ctx.__nextHandle = 'error';
+            await upsertStep(runId, node.id, branchId, 'failed', {
+              lastError: msg,
+              finishedAt: new Date(),
+            });
+            await audit({
+              actor: 'system',
+              action: 'webhook.failed',
+              flowRunId: runId,
+              payload: { url: url.replace(/\/\/.*@/, '//***@'), error: msg },
+            });
+            return 'success';
+          }
           break;
         }
         case 'wait_approval': {
@@ -416,6 +497,7 @@ async function executeNode(
       return 'success';
     } catch (e) {
       lastError = e instanceof Error ? e.message : String(e);
+      recordNodeFailure(ctx, node, lastError);
       await upsertStep(runId, node.id, branchId, 'failed', {
         lastError,
         finishedAt: new Date(),
@@ -446,6 +528,8 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
   const graph = parseGraph(flow.graphJson);
   const ctx = JSON.parse(run.contextJson || '{}') as RunContext;
   const dryRun = Boolean(run.dryRun);
+  ctx.runId = runId;
+  ctx.flowId = run.flowId;
 
   try {
     if (opts?.resumeInterrupted) {
@@ -574,9 +658,16 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
 
       if (result === 'waiting') return;
       if (result === 'failed') {
+        if (!SIDE_EFFECT_NODE_TYPES.has(node.type)) {
+          setRunOutcome(ctx, 'failed');
+        }
         const errorNext = nextNodes(graph, node.id, 'error');
         if (errorNext.length) {
           queue.push(...errorNext);
+          continue;
+        }
+        // Side-effect failures never pause / fail the run
+        if (SIDE_EFFECT_NODE_TYPES.has(node.type)) {
           continue;
         }
         runsRepo.update(runId, { status: 'awaiting_user', currentNodeId: node.id, contextJson: JSON.stringify(ctx) });
@@ -588,13 +679,21 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
       queue.push(...nextNodes(graph, node.id, handle));
     }
 
+    const status = finalizeRunStatus(ctx);
     runsRepo.update(runId, {
-      status: 'success',
+      status,
       finishedAt: new Date(),
       currentNodeId: null,
       contextJson: JSON.stringify(ctx),
     });
-    await audit({ actor: 'system', action: 'flow_run.success', entity: 'flow_run', entityId: runId, flowRunId: runId });
+    await audit({
+      actor: 'system',
+      action: status === 'success' ? 'flow_run.success' : `flow_run.${status}`,
+      entity: 'flow_run',
+      entityId: runId,
+      flowRunId: runId,
+      payload: { outcome: status },
+    });
   } catch (e) {
     logger.error('advanceRun error', { runId, err: e });
     runsRepo.update(runId, {

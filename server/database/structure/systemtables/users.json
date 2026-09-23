@@ -1,0 +1,39 @@
+{
+  "TableName": "users",
+  "PrimaryKeyFields": "id",
+  "Fields": [
+    {
+      "FieldName": "id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "username",
+      "DataType": "varchar(255)",
+      "NotNullable": true,
+      "Unique": true
+    },
+    {
+      "FieldName": "password_hash",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "role",
+      "DataType": "varchar(32)",
+      "NotNullable": true,
+      "DefaultValue": "modify"
+    },
+    {
+      "FieldName": "must_change_password",
+      "DataType": "tinyint(1)",
+      "NotNullable": true,
+      "DefaultValue": 0
+    },
+    {
+      "FieldName": "created_at",
+      "DataType": "integer",
+      "NotNullable": true
+    }
+  ]
+}

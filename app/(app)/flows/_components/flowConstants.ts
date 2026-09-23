@@ -58,7 +58,27 @@ export const CONTEXT_FIELDS = [
   { value: 'containerName', label: 'containerName' },
   { value: 'newDigest', label: 'newDigest' },
   { value: 'oldDigest', label: 'oldDigest' },
+  { value: 'error', label: 'error' },
+  { value: 'approvalDecision', label: 'approvalDecision' },
 ];
+
+/** Tags disponíveis em Notify / Webhook (`{{tag}}`). */
+export const TEMPLATE_TAGS = [
+  'error',
+  'lastError',
+  'failedNodeId',
+  'failedNodeType',
+  'agentId',
+  'containerName',
+  'image',
+  'updateAvailable',
+  'newDigest',
+  'oldDigest',
+  'previousDigest',
+  'approvalDecision',
+  'runId',
+  'flowId',
+] as const;
 
 export const inputStyle: React.CSSProperties = {
   display: 'block',

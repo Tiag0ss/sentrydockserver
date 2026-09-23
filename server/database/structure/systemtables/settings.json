@@ -1,0 +1,16 @@
+{
+  "TableName": "settings",
+  "PrimaryKeyFields": "key",
+  "Fields": [
+    {
+      "FieldName": "key",
+      "DataType": "varchar(255)",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "value",
+      "DataType": "text",
+      "NotNullable": true
+    }
+  ]
+}

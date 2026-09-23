@@ -1,0 +1,46 @@
+{
+  "TableName": "audit_logs",
+  "PrimaryKeyFields": "id",
+  "Fields": [
+    {
+      "FieldName": "id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "ts",
+      "DataType": "integer",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "actor",
+      "DataType": "varchar(255)",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "action",
+      "DataType": "varchar(128)",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "entity",
+      "DataType": "varchar(128)",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "entity_id",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "flow_run_id",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "payload_json",
+      "DataType": "text",
+      "NotNullable": false
+    }
+  ]
+}

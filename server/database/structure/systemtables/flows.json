@@ -1,0 +1,36 @@
+{
+  "TableName": "flows",
+  "PrimaryKeyFields": "id",
+  "Fields": [
+    {
+      "FieldName": "id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "name",
+      "DataType": "varchar(255)",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "description",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "graph_json",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "created_at",
+      "DataType": "integer",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "updated_at",
+      "DataType": "integer",
+      "NotNullable": true
+    }
+  ]
+}

@@ -205,6 +205,29 @@ apiRouter.get('/logs', authRequired, requirePasswordOk, (req, res) => {
   res.json(ops.listLogs(limit, req.query.flowRunId as string | undefined));
 });
 
+apiRouter.get('/notifications', authRequired, requirePasswordOk, (req, res) => {
+  const limit = Math.min(Number(req.query.limit || 50), 200);
+  const unreadOnly = String(req.query.unread || '') === '1' || String(req.query.unread || '') === 'true';
+  res.json({
+    items: ops.listNotifications(limit, unreadOnly),
+    unreadCount: ops.unreadNotificationCount(),
+  });
+});
+
+apiRouter.post('/notifications/read-all', authRequired, requirePasswordOk, (_req, res) => {
+  ops.markAllNotificationsRead();
+  res.json({ ok: true });
+});
+
+apiRouter.post('/notifications/:id/read', authRequired, requirePasswordOk, (req, res) => {
+  const ok = ops.markNotificationRead(param(req));
+  if (!ok) {
+    res.status(404).json({ error: 'not found' });
+    return;
+  }
+  res.json({ ok: true });
+});
+
 apiRouter.get('/dashboard', authRequired, requirePasswordOk, (_req, res) => {
   res.json(ops.getDashboard());
 });

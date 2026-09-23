@@ -5,6 +5,7 @@ import type { Node } from '@xyflow/react';
 import { api } from '@/lib/api';
 import {
   CONTEXT_FIELDS,
+  TEMPLATE_TAGS,
   getNodeOutputs,
   inputStyle,
 } from './flowConstants';
@@ -165,6 +166,52 @@ export function NodeInspector({ selectedNode, onPatch }: Props) {
     );
   }
 
+  function insertTag(key: string, tag: string) {
+    const current = String(selectedNode!.data[key] ?? '');
+    const token = `{{${tag}}}`;
+    const next = current ? `${current}${current.endsWith(' ') || current.endsWith('\n') ? '' : ' '}${token}` : token;
+    patch(key, next);
+  }
+
+  function templateField(key: string, label: string, opts?: { minHeight?: number; placeholder?: string }) {
+    return (
+      <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <label>
+          {label}
+          <textarea
+            style={{ ...inputStyle, minHeight: opts?.minHeight ?? 72, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12 }}
+            placeholder={opts?.placeholder}
+            value={String(selectedNode!.data[key] ?? '')}
+            onChange={(e) => patch(key, e.target.value)}
+          />
+        </label>
+        <div style={{ fontSize: 11, color: 'var(--muted)' }}>{t('inspector.templateTagsHint')}</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {TEMPLATE_TAGS.map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              onClick={() => insertTag(key, tag)}
+              title={`{{${tag}}}`}
+              style={{
+                background: 'transparent',
+                border: '1px solid var(--border)',
+                color: 'var(--accent)',
+                borderRadius: 6,
+                padding: '2px 6px',
+                fontSize: 11,
+                cursor: 'pointer',
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+              }}
+            >
+              {`{{${tag}}}`}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
       <div>{t('inspector.type')}: {type}</div>
@@ -274,7 +321,26 @@ export function NodeInspector({ selectedNode, onPatch }: Props) {
         />
       )}
 
-      {type === 'notify' && field('message', t('inspector.message'))}
+      {type === 'notify' && (
+        <>
+          {templateField('message', t('inspector.message'), {
+            placeholder: t('inspector.notifyPlaceholder'),
+          })}
+          <label>
+            {t('inspector.notifyLevel')}
+            <select
+              style={inputStyle}
+              value={String(selectedNode.data.level || 'auto')}
+              onChange={(e) => patch('level', e.target.value === 'auto' ? '' : e.target.value)}
+            >
+              <option value="auto">auto</option>
+              <option value="info">info</option>
+              <option value="warn">warn</option>
+              <option value="error">error</option>
+            </select>
+          </label>
+        </>
+      )}
 
       {type === 'webhook' && (
         <>
@@ -291,14 +357,10 @@ export function NodeInspector({ selectedNode, onPatch }: Props) {
               ))}
             </select>
           </label>
-          <label>
-            {t('inspector.templateBody')}
-            <textarea
-              style={{ ...inputStyle, minHeight: 80 }}
-              value={String(selectedNode.data.templateBody || '')}
-              onChange={(e) => patch('templateBody', e.target.value)}
-            />
-          </label>
+          {templateField('templateBody', t('inspector.templateBody'), {
+            minHeight: 100,
+            placeholder: t('inspector.webhookPlaceholder'),
+          })}
         </>
       )}
 

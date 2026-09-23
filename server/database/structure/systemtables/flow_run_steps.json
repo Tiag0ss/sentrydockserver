@@ -1,0 +1,52 @@
+{
+  "TableName": "flow_run_steps",
+  "PrimaryKeyFields": "id",
+  "Fields": [
+    {
+      "FieldName": "id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "run_id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "node_id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "branch_id",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "status",
+      "DataType": "varchar(64)",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "attempts",
+      "DataType": "integer",
+      "NotNullable": true,
+      "DefaultValue": 0
+    },
+    {
+      "FieldName": "last_error",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "started_at",
+      "DataType": "integer",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "finished_at",
+      "DataType": "integer",
+      "NotNullable": false
+    }
+  ]
+}

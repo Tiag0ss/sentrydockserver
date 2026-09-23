@@ -1,0 +1,74 @@
+{
+  "TableName": "update_policies",
+  "PrimaryKeyFields": "id",
+  "Fields": [
+    {
+      "FieldName": "id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "name",
+      "DataType": "varchar(255)",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "watch_id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "flow_id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "cron",
+      "DataType": "varchar(128)",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "timezone",
+      "DataType": "varchar(64)",
+      "NotNullable": true,
+      "DefaultValue": "Europe/Lisbon"
+    },
+    {
+      "FieldName": "mode",
+      "DataType": "varchar(32)",
+      "NotNullable": true,
+      "DefaultValue": "notify"
+    },
+    {
+      "FieldName": "enabled",
+      "DataType": "tinyint(1)",
+      "NotNullable": true,
+      "DefaultValue": 1
+    },
+    {
+      "FieldName": "blackout_start",
+      "DataType": "varchar(8)",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "blackout_end",
+      "DataType": "varchar(8)",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "next_run_at",
+      "DataType": "integer",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "last_run_at",
+      "DataType": "integer",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "created_at",
+      "DataType": "integer",
+      "NotNullable": true
+    }
+  ]
+}

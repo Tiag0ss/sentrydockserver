@@ -1,0 +1,64 @@
+{
+  "TableName": "agents",
+  "PrimaryKeyFields": "id",
+  "Fields": [
+    {
+      "FieldName": "id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "name",
+      "DataType": "varchar(255)",
+      "NotNullable": true,
+      "Unique": true
+    },
+    {
+      "FieldName": "token_hash",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "transport",
+      "DataType": "varchar(16)",
+      "NotNullable": true,
+      "DefaultValue": "ws"
+    },
+    {
+      "FieldName": "protocol_version",
+      "DataType": "integer",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "agent_version",
+      "DataType": "varchar(64)",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "status",
+      "DataType": "varchar(32)",
+      "NotNullable": true,
+      "DefaultValue": "offline"
+    },
+    {
+      "FieldName": "hostname",
+      "DataType": "varchar(255)",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "last_seen_at",
+      "DataType": "integer",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "meta_json",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "created_at",
+      "DataType": "integer",
+      "NotNullable": true
+    }
+  ]
+}

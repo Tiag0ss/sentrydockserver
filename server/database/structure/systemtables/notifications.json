@@ -1,0 +1,82 @@
+{
+  "TableName": "notifications",
+  "PrimaryKeyFields": "id",
+  "Fields": [
+    {
+      "FieldName": "id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "ts",
+      "DataType": "integer",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "message",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "level",
+      "DataType": "varchar(16)",
+      "NotNullable": true,
+      "DefaultValue": "info"
+    },
+    {
+      "FieldName": "flow_run_id",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "flow_id",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "flow_name",
+      "DataType": "varchar(255)",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "agent_id",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "container_name",
+      "DataType": "varchar(255)",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "image",
+      "DataType": "varchar(512)",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "read_at",
+      "DataType": "integer",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "payload_json",
+      "DataType": "text",
+      "NotNullable": false
+    }
+  ],
+  "Indexes": [
+    {
+      "Name": "idx_notifications_ts",
+      "Columns": [
+        "ts"
+      ]
+    },
+    {
+      "Name": "idx_notifications_unread",
+      "Columns": [
+        "read_at",
+        "ts"
+      ]
+    }
+  ]
+}

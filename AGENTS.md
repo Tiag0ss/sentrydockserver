@@ -104,13 +104,15 @@ Use the repo’s existing runner. Do not introduce a new test framework unasked.
 
 | Rule | When |
 |------|------|
-| `database.mdc` | Persistence, migrations, ORM/SQL usage |
+| `database.mdc` | Persistence, ORM/SQL usage |
+| `database-json-schema.mdc` | Table/column JSON definitions |
 
 | Skill | When |
 |-------|------|
-| `new-data-access` | New or changed repository / query / migration |
+| `db-schema-json` | Add/change tables or columns (JSON → SQLite sync) |
+| `new-data-access` | New or changed repository / query |
 
-Keep SQL/ORM in the data layer. Use the project’s existing ORM and migration tool.
+DDL source of truth: `server/database/structure/systemtables/*.json`. Sync on startup via `schemaBuilder`. Drizzle `schema.ts` is the typed query layer only — no hand-written SQL migrations.
 
 ## Notes
 

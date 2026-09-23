@@ -1,15 +1,20 @@
 ---
-description: Data access — ORM/SQL layering, migrations, no SQL in HTTP handlers
-globs: "**/*.{ts,tsx,js,cs,py},**/prisma/**/*,**/drizzle/**/*,**/migrations/**/*"
+description: Data access — JSON schema DDL, Drizzle queries, no SQL in HTTP handlers
+globs: "**/database/**/*,**/repositories/**/*,**/drizzle/**/*"
 alwaysApply: false
 ---
 
 # Database / data access
 
-- Keep SQL/ORM usage in a **repository** / data layer — not in React components, route handlers, or controllers.
-- Prefer the project’s existing stack (Prisma, Drizzle, EF Core, SQLAlchemy, raw `pg`/`mysql2`). Do not add a second ORM unasked.
+- **DDL source of truth:** `server/database/structure/systemtables/*.json`
+- Startup sync: `buildAllTables()` (`server/utils/schemaBuilder.ts`) — create table / add missing columns. SQLite only.
+- **Do not** add hand-written SQL migration files for create/alter column.
+- Typed queries: Drizzle in `server/database/schema.ts` + `repositories/` — keep aligned with JSON after field changes.
+- Keep SQL/ORM usage in the **repository** / data layer — not in React components, route handlers, or controllers.
 - **Parameterized** queries only. Never concatenate untrusted input into SQL.
-- Schema changes go through the project’s **migration** tool. Do not hand-edit production DBs from app code.
 - Transactions: wrap multi-step writes in the pattern the project already uses.
-- Connection/config via env. Never commit connection strings with secrets.
-- Expose DTOs/entities carefully — do not return raw DB rows with secrets or internal columns to clients.
+- Connection/config via env (`SQLITE_PATH` / `DATA_DIR`). Never commit secrets.
+- Expose DTOs carefully — do not return raw DB rows with secrets to clients.
+- Destructive changes (drop/rename): raw SQL for the developer to run manually — do not commit ad-hoc fix scripts.
+
+See also: `database-json-schema.mdc`, skill `db-schema-json`.

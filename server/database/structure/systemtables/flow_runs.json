@@ -1,0 +1,62 @@
+{
+  "TableName": "flow_runs",
+  "PrimaryKeyFields": "id",
+  "Fields": [
+    {
+      "FieldName": "id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "flow_id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "status",
+      "DataType": "varchar(64)",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "trigger_source",
+      "DataType": "varchar(64)",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "lock_key",
+      "DataType": "varchar(255)",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "current_node_id",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "context_json",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "dry_run",
+      "DataType": "tinyint(1)",
+      "NotNullable": true,
+      "DefaultValue": 0
+    },
+    {
+      "FieldName": "summary",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "started_at",
+      "DataType": "integer",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "finished_at",
+      "DataType": "integer",
+      "NotNullable": false
+    }
+  ]
+}

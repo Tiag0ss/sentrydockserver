@@ -1,0 +1,51 @@
+{
+  "TableName": "update_events",
+  "PrimaryKeyFields": "id",
+  "Fields": [
+    {
+      "FieldName": "id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "policy_id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "watch_id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "status",
+      "DataType": "varchar(32)",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "old_digest",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "new_digest",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "image",
+      "DataType": "varchar(512)",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "created_at",
+      "DataType": "integer",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "resolved_at",
+      "DataType": "integer",
+      "NotNullable": false
+    }
+  ]
+}

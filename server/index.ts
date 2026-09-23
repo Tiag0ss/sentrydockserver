@@ -6,13 +6,14 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import http from 'http';
 import { Server as SocketIOServer } from 'socket.io';
-import { runMigrations } from './database/migrate';
+import { buildAllTables } from './utils/schemaBuilder';
 import { seedDatabase } from './services/seed';
 import { apiRouter } from './routes';
 import { errorHandler } from './middleware/errorHandler';
 import { agentGateway } from './services/agentGateway';
 import { scheduleUpdateEngine } from './services/updateEngine';
 import { resumeInterruptedRuns } from './services/flowEngine';
+import { uiBus } from './services/uiBus';
 import logger from './utils/logger';
 
 dotenv.config();
@@ -22,7 +23,7 @@ const port = Number(process.env.PORT || 3000);
 const grpcPort = Number(process.env.GRPC_PORT || 50051);
 
 async function main() {
-  runMigrations();
+  buildAllTables();
   await seedDatabase();
 
   const nextApp = next({ dev, dir: process.cwd() });
@@ -51,6 +52,10 @@ async function main() {
 
   io.of('/ui').use((_socket, nextFn) => {
     nextFn();
+  });
+
+  uiBus.on('notification', (n) => {
+    io.of('/ui').emit('notification:new', n);
   });
 
   setInterval(() => {

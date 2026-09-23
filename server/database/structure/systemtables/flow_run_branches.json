@@ -1,0 +1,41 @@
+{
+  "TableName": "flow_run_branches",
+  "PrimaryKeyFields": "id",
+  "Fields": [
+    {
+      "FieldName": "id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "run_id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "split_node_id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "agent_id",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "container_name",
+      "DataType": "varchar(255)",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "status",
+      "DataType": "varchar(64)",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "context_json",
+      "DataType": "text",
+      "NotNullable": false
+    }
+  ]
+}

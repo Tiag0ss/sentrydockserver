@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, lt } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { db } from '../database/db';
 import {
   flowRuns,
@@ -11,10 +11,11 @@ import {
   messageTemplates,
   webhookTriggers,
   settings,
+  notifications,
 } from '../database/schema';
 
 const ACTIVE = ['running', 'waiting_approval', 'awaiting_user', 'resume_pending', 'interrupted'] as const;
-const HISTORY = ['success', 'failed', 'aborted'] as const;
+const HISTORY = ['success', 'failed', 'aborted', 'rejected'] as const;
 
 export const runsRepo = {
   list(status?: string) {
@@ -187,5 +188,43 @@ export const settingsRepo = {
     const existing = db.select().from(settings).where(eq(settings.key, key)).get();
     if (existing) db.update(settings).set({ value }).where(eq(settings.key, key)).run();
     else db.insert(settings).values({ key, value }).run();
+  },
+};
+
+export const notificationsRepo = {
+  insert(row: typeof notifications.$inferInsert) {
+    db.insert(notifications).values(row).run();
+  },
+  list(limit = 50, opts?: { unreadOnly?: boolean }) {
+    if (opts?.unreadOnly) {
+      return db.select().from(notifications)
+        .where(isNull(notifications.readAt))
+        .orderBy(desc(notifications.ts))
+        .limit(limit)
+        .all();
+    }
+    return db.select().from(notifications)
+      .orderBy(desc(notifications.ts))
+      .limit(limit)
+      .all();
+  },
+  findById(id: string) {
+    return db.select().from(notifications).where(eq(notifications.id, id)).get();
+  },
+  unreadCount() {
+    const row = db.select({ n: sql<number>`count(*)` })
+      .from(notifications)
+      .where(isNull(notifications.readAt))
+      .get();
+    return Number(row?.n ?? 0);
+  },
+  markRead(id: string) {
+    db.update(notifications).set({ readAt: new Date() }).where(eq(notifications.id, id)).run();
+  },
+  markAllRead() {
+    db.update(notifications).set({ readAt: new Date() }).where(isNull(notifications.readAt)).run();
+  },
+  deleteOlderThan(cutoff: Date) {
+    db.delete(notifications).where(lt(notifications.ts, cutoff)).run();
   },
 };

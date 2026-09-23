@@ -5,12 +5,12 @@ import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 
 export type DashboardData = {
-  activeRuns: Array<{ id: string; flowId: string; status: string; currentNodeId: string | null; startedAt: string }>;
+  activeRuns: Array<{ id: string; flowId: string; flowName: string; status: string; currentNodeId: string | null; startedAt: string }>;
   upcomingPolicies: Array<{ id: string; name: string; nextRunAt: string; cron: string; timezone: string }>;
-  history: Array<{ id: string; flowId: string; status: string; finishedAt: string | null }>;
+  history: Array<{ id: string; flowId: string; flowName: string; status: string; finishedAt: string | null; startedAt?: string }>;
   agents: Array<{ id: string; name: string; status: string; online: boolean; meta: { diskUsedBytes?: number; diskTotalBytes?: number } | null }>;
   pendingUpdates: Array<{ id: string; image: string; status: string }>;
-  attention: Array<{ id: string; status: string }>;
+  attention: Array<{ id: string; flowName?: string; status: string }>;
   summary: { agentsOnline: number; activeRuns: number; pendingUpdates: number };
 };
 
@@ -89,7 +89,7 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
         {data.activeRuns.length === 0 && <Empty>{t('dashboard.noRunning')}</Empty>}
         {data.activeRuns.map((r) => (
           <Row key={r.id}>
-            <Link href={`/runs/${r.id}`}>{r.id.slice(0, 8)}…</Link>
+            <Link href={`/runs/${r.id}`}>{r.flowName}</Link>
             <Badge>{r.status}</Badge>
             <span style={{ color: 'var(--muted)' }}>{t('dashboard.step')}: {r.currentNodeId || '—'}</span>
           </Row>
@@ -117,7 +117,7 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
         ))}
         {data.attention.map((a) => (
           <Row key={a.id}>
-            <Link href={`/runs/${a.id}`}>Run {a.id.slice(0, 8)}…</Link>
+            <Link href={`/runs/${a.id}`}>{a.flowName || `Run ${a.id.slice(0, 8)}…`}</Link>
             <Badge warn>{a.status}</Badge>
           </Row>
         ))}
@@ -126,8 +126,8 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
       <Section title={t('dashboard.recentHistory')}>
         {data.history.map((r) => (
           <Row key={r.id}>
-            <Link href={`/runs/${r.id}`}>{r.id.slice(0, 8)}…</Link>
-            <Badge ok={r.status === 'success'} danger={r.status === 'failed'}>{r.status}</Badge>
+            <Link href={`/runs/${r.id}`}>{r.flowName}</Link>
+            <Badge ok={r.status === 'success'} danger={r.status === 'failed' || r.status === 'aborted' || r.status === 'rejected'}>{r.status}</Badge>
           </Row>
         ))}
       </Section>

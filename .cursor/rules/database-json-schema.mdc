@@ -1,0 +1,75 @@
+---
+description: Database schema via JSON — tables, fields, SQLite sync (Myelin-style)
+globs: server/database/**/*
+alwaysApply: false
+---
+
+# Database JSON schema (SQLite)
+
+Skill: `.cursor/skills/db-schema-json/SKILL.md`
+
+## Source of truth
+
+All system tables: `server/database/structure/systemtables/{table_name}.json`
+
+Startup (`schemaBuilder.buildAllTables`) syncs JSON → SQLite (create table / add missing columns / indexes).
+
+**Do not** add hand-written SQL migration files for create/alter column.
+
+Drizzle `server/database/schema.ts` is only the typed query layer — keep it aligned with JSON after field changes.
+
+## New table template
+
+```json
+{
+  "TableName": "my_entities",
+  "PrimaryKeyFields": "id",
+  "Fields": [
+    {
+      "FieldName": "id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "name",
+      "DataType": "varchar(255)",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "created_at",
+      "DataType": "integer",
+      "NotNullable": true,
+      "Comment": "Unix ms timestamp"
+    }
+  ]
+}
+```
+
+## Critical rules
+
+| Rule | Detail |
+|------|--------|
+| Primary key | **`PrimaryKeyFields`** (string) — NOT `PrimaryKey`, NOT array |
+| Composite PK | `"PrimaryKeyFields": "field1,field2"` (comma, no spaces) |
+| Booleans | `tinyint(1)` → SQLite `INTEGER` |
+| Timestamps | store as `integer` (ms) in app code |
+| String defaults | `"DefaultValue": "info"` — no extra quotes |
+
+## Adding a column
+
+1. Edit the table JSON — append to `Fields`.
+2. Mirror the column in `server/database/schema.ts` (Drizzle).
+3. Restart the server — schemaBuilder adds the column if missing.
+4. Update repositories / Zod / UI as needed.
+
+## Indexes (optional)
+
+```json
+"Indexes": [
+  { "Name": "idx_example_ts", "Columns": ["ts"] }
+]
+```
+
+## Destructive changes
+
+Column drops / renames: provide raw SQL for the developer to run manually. Do not commit ad-hoc fix scripts.

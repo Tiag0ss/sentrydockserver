@@ -1,0 +1,42 @@
+{
+  "TableName": "webhook_triggers",
+  "PrimaryKeyFields": "id",
+  "Fields": [
+    {
+      "FieldName": "id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "name",
+      "DataType": "varchar(255)",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "flow_id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "token_hash",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "agent_id",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "enabled",
+      "DataType": "tinyint(1)",
+      "NotNullable": true,
+      "DefaultValue": 1
+    },
+    {
+      "FieldName": "created_at",
+      "DataType": "integer",
+      "NotNullable": true
+    }
+  ]
+}

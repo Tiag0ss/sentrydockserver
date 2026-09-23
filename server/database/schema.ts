@@ -1,3 +1,8 @@
+/**
+ * Drizzle typed query layer — mirror of JSON schemas in
+ * `structure/systemtables/*.json` (source of truth for DDL via schemaBuilder).
+ * When adding/changing columns: edit the JSON first, then update this file.
+ */
 import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
 
 export const users = sqliteTable('users', {
@@ -147,4 +152,19 @@ export const updateEvents = sqliteTable('update_events', {
 export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
+});
+
+export const notifications = sqliteTable('notifications', {
+  id: text('id').primaryKey(),
+  ts: integer('ts', { mode: 'timestamp_ms' }).notNull(),
+  message: text('message').notNull(),
+  level: text('level').notNull().default('info'), // info | warn | error
+  flowRunId: text('flow_run_id'),
+  flowId: text('flow_id'),
+  flowName: text('flow_name'),
+  agentId: text('agent_id'),
+  containerName: text('container_name'),
+  image: text('image'),
+  readAt: integer('read_at', { mode: 'timestamp_ms' }),
+  payloadJson: text('payload_json'),
 });

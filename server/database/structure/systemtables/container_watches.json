@@ -1,0 +1,36 @@
+{
+  "TableName": "container_watches",
+  "PrimaryKeyFields": "id",
+  "Fields": [
+    {
+      "FieldName": "id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "agent_id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "container_name",
+      "DataType": "varchar(255)",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "image",
+      "DataType": "varchar(512)",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "secret_id",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "created_at",
+      "DataType": "integer",
+      "NotNullable": true
+    }
+  ]
+}

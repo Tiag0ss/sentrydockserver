@@ -19,20 +19,62 @@ import { runPolicyCheck } from './updateEngine';
 import { agentGateway } from './agentGateway';
 import { AppError } from '../utils/errors';
 import logger from '../utils/logger';
+import { unreadNotificationCount } from './notificationsService';
+
+function flowNameMap(): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const f of flowsRepo.list()) map.set(f.id, f.name);
+  return map;
+}
+
+function enrichRun<T extends { id: string; flowId: string; contextJson?: string | null }>(
+  r: T,
+  names: Map<string, string>,
+) {
+  return {
+    ...r,
+    flowName: names.get(r.flowId) || r.flowId.slice(0, 8),
+    context: r.contextJson ? JSON.parse(r.contextJson) : null,
+  };
+}
 
 export function listRuns(status?: string) {
-  return runsRepo.list(status).map((r) => ({
-    ...r,
-    context: r.contextJson ? JSON.parse(r.contextJson) : null,
-  }));
+  const names = flowNameMap();
+  return runsRepo.list(status).map((r) => enrichRun(r, names));
 }
 
 export function getRun(id: string) {
   const run = runsRepo.findById(id);
   if (!run) throw new AppError(404, 'not found', 'not_found');
   const flow = flowsRepo.findById(run.flowId);
-  const graph = flow?.graphJson ? JSON.parse(flow.graphJson) : { nodes: [], edges: [] };
-  const steps = runsRepo.steps(run.id);
+  const graph = flow?.graphJson
+    ? JSON.parse(flow.graphJson) as {
+      nodes: Array<{ id: string; type?: string; data?: Record<string, unknown> }>;
+      edges: unknown[];
+    }
+    : { nodes: [], edges: [] };
+
+  const agentNames = new Map(agentsRepo.list().map((a) => [a.id, a.name]));
+  const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
+
+  const steps = runsRepo.steps(run.id)
+    .slice()
+    .sort((a, b) => {
+      const ta = a.startedAt ? new Date(a.startedAt).getTime() : 0;
+      const tb = b.startedAt ? new Date(b.startedAt).getTime() : 0;
+      return ta - tb;
+    })
+    .map((s) => {
+      const node = nodeById.get(s.nodeId);
+      const nodeType = String(node?.type || node?.data?.nodeType || s.nodeId.split('-')[0] || 'node');
+      const customLabel = node?.data?.label != null ? String(node.data.label) : null;
+      return {
+        ...s,
+        nodeType,
+        label: customLabel && customLabel.trim() ? customLabel : nodeType,
+        lastError: humanizeAgentIds(s.lastError, agentNames),
+      };
+    });
 
   // Collapse duplicate steps per node (keep worst / latest meaningful status)
   const statusByNode: Record<string, { status: string; attempts: number; lastError: string | null }> = {};
@@ -48,16 +90,32 @@ export function getRun(id: string) {
     }
   }
 
+  const branches = runsRepo.branches(run.id).map((b) => ({
+    ...b,
+    agentName: b.agentId ? (agentNames.get(b.agentId) || b.agentId.slice(0, 8)) : null,
+  }));
+
   return {
     ...run,
     context: run.contextJson ? JSON.parse(run.contextJson) : null,
     steps,
-    branches: runsRepo.branches(run.id),
+    branches,
     flow: flow
       ? { id: flow.id, name: flow.name, graph }
       : null,
     nodeStatuses: statusByNode,
   };
+}
+
+function humanizeAgentIds(message: string | null, agentNames: Map<string, string>): string | null {
+  if (!message) return null;
+  return message.replace(
+    /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
+    (id) => {
+      const name = agentNames.get(id);
+      return name ? name : `${id.slice(0, 8)}…`;
+    },
+  );
 }
 
 function stepRank(status: string): number {
@@ -252,7 +310,16 @@ export function listLogs(limit: number, flowRunId?: string) {
   }));
 }
 
+export {
+  listNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+} from './notificationsService';
+
+export { unreadNotificationCount };
+
 export function getDashboard() {
+  const names = flowNameMap();
   const active = runsRepo.active();
   const history = runsRepo.list('history').slice(0, 20);
   const upcoming = policiesRepo.listEnabled()
@@ -264,12 +331,9 @@ export function getDashboard() {
   const awaiting = active.filter((r) => r.status === 'awaiting_user' || r.status === 'waiting_approval');
 
   return {
-    activeRuns: active.map((r) => ({
-      ...r,
-      context: r.contextJson ? JSON.parse(r.contextJson) : null,
-    })),
+    activeRuns: active.map((r) => enrichRun(r, names)),
     upcomingPolicies: upcoming,
-    history,
+    history: history.map((r) => enrichRun(r, names)),
     agents: agentRows.map((a) => ({
       id: a.id,
       name: a.name,
@@ -278,11 +342,12 @@ export function getDashboard() {
       meta: a.metaJson ? JSON.parse(a.metaJson) : null,
     })),
     pendingUpdates,
-    attention: awaiting,
+    attention: awaiting.map((r) => enrichRun(r, names)),
     summary: {
       agentsOnline: agentRows.filter((a) => agentGateway.isOnline(a.id)).length,
       activeRuns: active.length,
       pendingUpdates: pendingUpdates.length,
+      unreadNotifications: unreadNotificationCount(),
     },
   };
 }

@@ -6,7 +6,7 @@ import { startFlowRun } from './flowEngine';
 import { getSecretPlain } from './secretsService';
 import { audit } from './audit';
 import logger from '../utils/logger';
-import { policiesRepo, watchesRepo, updateEventsRepo, settingsRepo, auditRepo } from '../repositories/domainRepo';
+import { policiesRepo, watchesRepo, updateEventsRepo, settingsRepo, auditRepo, notificationsRepo } from '../repositories/domainRepo';
 
 export function scheduleUpdateEngine() {
   // Tick every minute
@@ -136,4 +136,5 @@ async function retainLogs() {
   const days = Number(row?.value || process.env.LOG_RETENTION_DAYS || 90);
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   auditRepo.deleteOlderThan(cutoff);
+  notificationsRepo.deleteOlderThan(cutoff);
 }

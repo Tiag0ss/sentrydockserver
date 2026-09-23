@@ -87,6 +87,8 @@ class AgentGateway extends EventEmitter {
 
     socket.on('event', (env: Envelope) => this.onAgentEvent(agentId, env));
     socket.on('disconnect', () => {
+      // Ignore stale disconnects after a newer session replaced this one
+      if (this.byId.get(agentId) !== connected) return;
       this.byId.delete(agentId);
       agentsRepo.update(agentId, { status: 'offline' });
       this.emit('agentOffline', agentId);
@@ -168,9 +170,13 @@ class AgentGateway extends EventEmitter {
 
   async sendCommand(agentId: string, type: string, payload: unknown, timeoutMs = 120_000): Promise<unknown> {
     const agent = this.byId.get(agentId);
-    if (!agent) throw new Error(`Agent ${agentId} offline`);
+    if (!agent) {
+      const row = agentsRepo.findById(agentId);
+      const label = row?.name || agentId.slice(0, 8);
+      throw new Error(`Agent "${label}" offline`);
+    }
     const row = agentsRepo.findById(agentId);
-    if (row?.status === 'incompatible') throw new Error('Agent protocol incompatible');
+    if (row?.status === 'incompatible') throw new Error(`Agent "${row.name}" protocol incompatible`);
 
     await this.acquireSlot();
     const requestId = uuid();
@@ -206,15 +212,18 @@ class AgentGateway extends EventEmitter {
   registerGrpc(agentId: string, write: (env: Envelope) => void) {
     const row = agentsRepo.findById(agentId);
     if (!row) return () => undefined;
-    this.byId.set(agentId, {
+    const connected: ConnectedAgent = {
       id: agentId,
       name: row.name,
       transport: 'grpc',
       send: write,
-    });
+    };
+    this.byId.set(agentId, connected);
     return () => {
+      if (this.byId.get(agentId) !== connected) return;
       this.byId.delete(agentId);
       agentsRepo.update(agentId, { status: 'offline' });
+      this.emit('agentOffline', agentId);
     };
   }
 

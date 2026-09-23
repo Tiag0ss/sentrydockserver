@@ -1,0 +1,38 @@
+{
+  "TableName": "message_templates",
+  "PrimaryKeyFields": "id",
+  "Fields": [
+    {
+      "FieldName": "id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "key",
+      "DataType": "varchar(128)",
+      "NotNullable": true,
+      "Unique": true
+    },
+    {
+      "FieldName": "name",
+      "DataType": "varchar(255)",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "body",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "builtin",
+      "DataType": "tinyint(1)",
+      "NotNullable": true,
+      "DefaultValue": 0
+    },
+    {
+      "FieldName": "created_at",
+      "DataType": "integer",
+      "NotNullable": true
+    }
+  ]
+}
