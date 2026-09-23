@@ -1,0 +1,20 @@
+services:
+  sentrydock:
+    build: .
+    ports:
+      - "3000:3000"
+      - "50051:50051"
+    environment:
+      PORT: "3000"
+      GRPC_PORT: "50051"
+      DATA_DIR: /data
+      JWT_SECRET: ${JWT_SECRET:-change-me}
+      SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY:-change-me-32-bytes-minimum-secret!!}
+      LOG_RETENTION_DAYS: "90"
+      MAX_PARALLEL_COMMANDS: "20"
+    volumes:
+      - sentrydock-data:/data
+    restart: unless-stopped
+
+volumes:
+  sentrydock-data:
