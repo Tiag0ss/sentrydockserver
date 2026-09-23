@@ -70,18 +70,21 @@ export async function runPolicyCheck(policyId: string) {
     }
   }
 
-  const local = await agentGateway.sendCommand(watch.agentId, 'docker.inspect', {
+  const check = await agentGateway.sendCommand(watch.agentId, 'image.checkUpdate', {
     id: watch.containerName,
-  }) as { Image?: string; Id?: string };
-
-  const remote = await agentGateway.sendCommand(watch.agentId, 'image.digest', {
+    containerId: watch.containerName,
     image: watch.image,
     auth,
-  }) as { digest?: string };
+  }, 300_000) as {
+    updateAvailable?: boolean;
+    remoteDigest?: string;
+    localDigests?: string[];
+    imageId?: string;
+  };
 
-  const oldDigest = local.Image || local.Id || '';
-  const newDigest = remote.digest || '';
-  const updateAvailable = Boolean(newDigest && oldDigest && !String(oldDigest).includes(String(newDigest).replace(/^sha256:/, '')));
+  const oldDigest = check.localDigests?.[0] || check.imageId || '';
+  const newDigest = check.remoteDigest || '';
+  const updateAvailable = Boolean(check.updateAvailable);
 
   await audit({
     actor: 'system',

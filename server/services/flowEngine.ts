@@ -5,6 +5,7 @@ import { agentGateway } from './agentGateway';
 import { audit } from './audit';
 import { getSecretPlain } from './secretsService';
 import { createNotification } from './notificationsService';
+import logger from '../utils/logger';
 
 export type FlowNode = {
   id: string;
@@ -318,19 +319,28 @@ async function executeNode(
           const image = String(node.data.image || ctx.image || '');
           const containerName = String(node.data.containerName || ctx.containerName || '');
           const auth = await getRegistryAuth(String(node.data.secretId || ctx.secretId || '') || null);
-          const local = await agentGateway.sendCommand(agentId, 'docker.inspect', { id: containerName }) as {
-            Image?: string;
-            Config?: { Image?: string };
+          // Compare digests of the *running* image vs remote registry (not container Id).
+          const check = await agentGateway.sendCommand(
+            agentId,
+            'image.checkUpdate',
+            {
+              id: containerName,
+              containerId: containerName,
+              image,
+              auth,
+            },
+            300_000,
+          ) as {
+            updateAvailable?: boolean;
+            remoteDigest?: string;
+            localDigests?: string[];
+            imageId?: string;
           };
-          const remote = await agentGateway.sendCommand(agentId, 'image.digest', { image, auth }) as {
-            digest?: string;
-          };
-          const localDigest = String((local as { Id?: string }).Id || '');
-          const updateAvailable = Boolean(remote.digest && localDigest && !localDigest.includes(remote.digest.replace('sha256:', '')));
+          const updateAvailable = Boolean(check.updateAvailable);
           Object.assign(ctx, {
             updateAvailable,
-            oldDigest: localDigest,
-            newDigest: remote.digest,
+            oldDigest: check.localDigests?.[0] || check.imageId || '',
+            newDigest: check.remoteDigest || '',
             image,
             agentId,
             containerName,
@@ -367,9 +377,15 @@ async function executeNode(
         case 'compose_up':
         case 'compose_down': {
           const agentId = String(node.data.agentId || ctx.agentId || '');
+          const projectPath = String(node.data.projectPath || '').trim();
+          if (!projectPath) {
+            throw new Error(
+              'projectPath is required for Compose nodes. For a standalone container (e.g. redis), use Recreate instead of Compose up.',
+            );
+          }
           await agentGateway.sendCommand(agentId, 'docker.compose', {
             action: node.type === 'compose_up' ? 'up' : 'down',
-            projectPath: String(node.data.projectPath || ''),
+            projectPath,
           });
           break;
         }
@@ -604,7 +620,7 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
         });
 
         await Promise.all(branches.map(async (b) => {
-          const bctx = { ...ctx, agentId: b.agentId, containerName: b.containerName, image: b.image || ctx.image };
+          const bctx: RunContext = { ...ctx, agentId: b.agentId, containerName: b.containerName, image: b.image || ctx.image };
           // execute linear path until join
           let path = branchNodes.filter((n) => n.type !== 'join');
           const localVisited = new Set<string>();
