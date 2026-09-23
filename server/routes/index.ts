@@ -15,6 +15,7 @@ import {
   updateFlowSchema,
   runFlowSchema,
   continueRunSchema,
+  rerunRunSchema,
   createWatchSchema,
   createPolicySchema,
   createTemplateSchema,
@@ -148,6 +149,11 @@ apiRouter.get('/runs/:id', authRequired, requirePasswordOk, asyncHandler(async (
 apiRouter.post('/runs/:id/continue', authRequired, requirePasswordOk, requireModify, validateBody(continueRunSchema), asyncHandler(async (req, res) => {
   await ops.continueRun(param(req), req.body);
   res.json({ ok: true });
+}));
+
+apiRouter.post('/runs/:id/rerun', authRequired, requirePasswordOk, requireModify, validateBody(rerunRunSchema), asyncHandler(async (req, res) => {
+  const result = await ops.rerunRun(param(req), req.user!.username, req.body);
+  res.status(201).json(result);
 }));
 
 apiRouter.get('/watches', authRequired, requirePasswordOk, (_req, res) => {

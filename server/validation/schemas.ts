@@ -56,6 +56,10 @@ export const continueRunSchema = z.object({
   branchIds: z.array(z.string()).optional(),
 });
 
+export const rerunRunSchema = z.object({
+  dryRun: z.boolean().optional(),
+});
+
 export const createWatchSchema = z.object({
   agentId: z.string().min(1),
   containerName: z.string().min(1),

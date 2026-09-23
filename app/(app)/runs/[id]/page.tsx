@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { RunFlowChart, RunStatusLegend, type NodeStatusMap, type RunGraph } from '../_components/RunFlowChart';
@@ -60,11 +60,27 @@ function statusLabelKey(status: string): string {
 export default function RunDetailPage() {
   const { t, formatDate } = useI18n();
   const params = useParams();
+  const router = useRouter();
   const id = String(params.id);
   const [run, setRun] = useState<RunDetail | null>(null);
+  const [rerunning, setRerunning] = useState(false);
+  const [rerunError, setRerunError] = useState('');
 
   async function load() {
     setRun(await api<RunDetail>(`/runs/${id}`));
+  }
+
+  async function rerun() {
+    setRerunning(true);
+    setRerunError('');
+    try {
+      const res = await api<{ runId: string }>(`/runs/${id}/rerun`, { method: 'POST', body: '{}' });
+      router.push(`/runs/${res.runId}`);
+    } catch (e) {
+      setRerunError(e instanceof Error ? e.message : t('runs.rerunError'));
+    } finally {
+      setRerunning(false);
+    }
   }
 
   useEffect(() => {
@@ -85,7 +101,7 @@ export default function RunDetailPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <header style={{ display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
+      <header style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <h1 style={{ margin: 0 }}>{run.flow?.name || `Run ${run.id.slice(0, 8)}…`}</h1>
         <span style={{ color: 'var(--muted)', fontSize: 14 }} title={run.id}>{run.id.slice(0, 8)}…</span>
         {run.flow && (
@@ -93,7 +109,26 @@ export default function RunDetailPage() {
             {t('runs.openFlow')}
           </Link>
         )}
+        <button
+          type="button"
+          onClick={() => { void rerun(); }}
+          disabled={rerunning}
+          style={{
+            marginLeft: 'auto',
+            background: 'var(--accent)',
+            color: 'var(--bg)',
+            border: 'none',
+            padding: '8px 14px',
+            borderRadius: 8,
+            cursor: rerunning ? 'wait' : 'pointer',
+            fontWeight: 600,
+            opacity: rerunning ? 0.7 : 1,
+          }}
+        >
+          {rerunning ? t('runs.rerunning') : t('runs.rerun')}
+        </button>
       </header>
+      {rerunError && <p style={{ color: 'var(--danger)', margin: 0, fontSize: 13 }}>{rerunError}</p>}
 
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', fontSize: 14 }}>
         <span>

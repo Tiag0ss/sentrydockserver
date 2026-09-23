@@ -138,6 +138,69 @@ export async function continueRun(id: string, input: { continue: boolean; branch
   }
 }
 
+const RERUN_STRIP_KEYS = new Set([
+  '__nextHandle',
+  '__runOutcome',
+  'error',
+  'lastError',
+  'failedNodeId',
+  'failedNodeType',
+  'approvalDecision',
+  'runId',
+  'flowId',
+  'selectedBranchIds',
+  'branchResults',
+  'updateAvailable',
+  'oldDigest',
+  'newDigest',
+  'previousDigest',
+]);
+
+function contextForRerun(raw: Record<string, unknown> | null): Record<string, unknown> {
+  if (!raw) return {};
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (RERUN_STRIP_KEYS.has(k)) continue;
+    if (k.startsWith('__')) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+export async function rerunRun(id: string, actor: string, opts?: { dryRun?: boolean }) {
+  const run = runsRepo.findById(id);
+  if (!run) throw new AppError(404, 'not found', 'not_found');
+  const flow = flowsRepo.findById(run.flowId);
+  if (!flow) throw new AppError(404, 'flow not found', 'not_found');
+
+  const prevCtx = run.contextJson ? JSON.parse(run.contextJson) as Record<string, unknown> : {};
+  const context = contextForRerun(prevCtx);
+  const dryRun = opts?.dryRun !== undefined ? Boolean(opts.dryRun) : Boolean(run.dryRun);
+
+  try {
+    const runId = await startFlowRun({
+      flowId: run.flowId,
+      triggerSource: 'rerun',
+      context,
+      dryRun,
+      actor,
+      lockKey: run.lockKey || `flow:${run.flowId}`,
+    });
+    await audit({
+      actor,
+      action: 'flow_run.rerun',
+      entity: 'flow_run',
+      entityId: runId,
+      flowRunId: runId,
+      payload: { fromRunId: id, dryRun },
+    });
+    return { runId };
+  } catch (err) {
+    logger.warn('rerun rejected', { id, err: err instanceof Error ? err.message : String(err) });
+    throw new AppError(409, 'could not start flow run', 'run_conflict');
+  }
+}
+
 export function listWatches() {
   return watchesRepo.list();
 }

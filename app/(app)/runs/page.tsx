@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 
@@ -35,24 +36,42 @@ function contextHint(r: Run): string | null {
 
 export default function RunsPage() {
   const { t, formatDate } = useI18n();
+  const router = useRouter();
   const [active, setActive] = useState<Run[]>([]);
   const [history, setHistory] = useState<Run[]>([]);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    setActive(await api('/runs?status=active'));
+    setHistory(await api('/runs?status=history'));
+  }, []);
 
   useEffect(() => {
-    void (async () => {
-      setActive(await api('/runs?status=active'));
-      setHistory(await api('/runs?status=history'));
-    })();
-  }, []);
+    void load();
+  }, [load]);
+
+  async function rerun(runId: string) {
+    setBusyId(runId);
+    setError('');
+    try {
+      const res = await api<{ runId: string }>(`/runs/${runId}/rerun`, { method: 'POST', body: '{}' });
+      router.push(`/runs/${res.runId}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('runs.rerunError'));
+      setBusyId(null);
+    }
+  }
 
   function RunRow({ r, showStep }: { r: Run; showStep?: boolean }) {
     const hint = contextHint(r);
+    const busy = busyId === r.id;
     return (
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'minmax(140px, 1.4fr) minmax(90px, 0.7fr) minmax(80px, 0.6fr) minmax(120px, 1fr)',
+        gridTemplateColumns: 'minmax(140px, 1.4fr) minmax(90px, 0.7fr) minmax(80px, 0.6fr) minmax(120px, 1fr) auto',
         gap: 12,
-        alignItems: 'baseline',
+        alignItems: 'center',
         padding: '10px 4px',
         borderBottom: '1px solid var(--border)',
         fontSize: 14,
@@ -72,6 +91,26 @@ export default function RunsPage() {
         <span style={{ color: 'var(--muted)', fontSize: 13, textAlign: 'right' }}>
           {formatDate(r.finishedAt || r.startedAt)}
         </span>
+        <button
+          type="button"
+          onClick={() => { void rerun(r.id); }}
+          disabled={busy || busyId !== null}
+          title={t('runs.rerun')}
+          style={{
+            background: 'transparent',
+            border: '1px solid var(--border)',
+            color: 'var(--text)',
+            borderRadius: 8,
+            padding: '6px 10px',
+            cursor: busy ? 'wait' : 'pointer',
+            fontSize: 12,
+            fontWeight: 600,
+            whiteSpace: 'nowrap',
+            opacity: busyId !== null && !busy ? 0.5 : 1,
+          }}
+        >
+          {busy ? t('runs.rerunning') : t('runs.rerun')}
+        </button>
       </div>
     );
   }
@@ -79,6 +118,7 @@ export default function RunsPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <h1 style={{ margin: 0 }}>{t('runs.title')}</h1>
+      {error && <p style={{ color: 'var(--danger)', margin: 0 }}>{error}</p>}
 
       <section>
         <h2 style={{ margin: '0 0 8px', fontSize: 16 }}>{t('runs.active')}</h2>
