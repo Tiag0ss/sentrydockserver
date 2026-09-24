@@ -1,6 +1,7 @@
 import { v4 as uuid } from 'uuid';
 import { flowsRepo } from '../repositories/flowsRepo';
 import { runsRepo } from '../repositories/domainRepo';
+import { templatesRepo } from '../repositories/domainRepo';
 import { agentGateway } from './agentGateway';
 import { audit } from './audit';
 import { getSecretPlain } from './secretsService';
@@ -414,7 +415,12 @@ async function executeNode(
         case 'webhook': {
           const url = String(node.data.url || '');
           const method = String(node.data.method || 'POST');
-          const templateBody = String(node.data.templateBody || node.data.body || '{}');
+          let templateBody = String(node.data.templateBody || node.data.body || '{}');
+          const templateKey = String(node.data.templateKey || '').trim();
+          if (templateKey) {
+            const tpl = templatesRepo.findByKey(templateKey);
+            if (tpl?.body) templateBody = tpl.body;
+          }
           const body = renderTemplate(templateBody, ctx);
           const headers: Record<string, string> = {
             'Content-Type': 'application/json',
@@ -426,7 +432,12 @@ async function executeNode(
               actor: 'system',
               action: 'webhook.sent',
               flowRunId: runId,
-              payload: { url: url.replace(/\/\/.*@/, '//***@'), status: res.status, bodyPreview: body.slice(0, 500) },
+              payload: {
+                url: url.replace(/\/\/.*@/, '//***@'),
+                status: res.status,
+                templateKey: templateKey || null,
+                bodyPreview: body.slice(0, 500),
+              },
             });
             if (!res.ok) {
               ctx.__nextHandle = 'error';
@@ -469,19 +480,47 @@ async function executeNode(
           const agentId = String(node.data.agentId || ctx.agentId || '');
           const id = String(node.data.containerName || ctx.containerName || '');
           const timeout = Number(node.data.timeoutMs || 60_000);
+          const probe = String(node.data.probeType || 'docker');
+          const healthUrl = String(node.data.healthUrl || '');
+          const autoRollback = Boolean(node.data.autoRollback);
           const start = Date.now();
           let healthy = false;
           while (Date.now() - start < timeout) {
-            const insp = await agentGateway.sendCommand(agentId, 'docker.inspect', { id }) as {
-              State?: { Health?: { Status?: string }; Status?: string };
-            };
-            const health = insp.State?.Health?.Status;
-            const status = insp.State?.Status;
-            if (health === 'healthy' || (!health && status === 'running')) {
-              healthy = true;
-              break;
+            if (probe === 'http' && healthUrl) {
+              try {
+                const res = await fetch(healthUrl, { method: 'GET', signal: AbortSignal.timeout(5000) });
+                if (res.ok) {
+                  healthy = true;
+                  break;
+                }
+              } catch {
+                /* retry */
+              }
+            } else {
+              const insp = await agentGateway.sendCommand(agentId, 'docker.inspect', { id }) as {
+                State?: { Health?: { Status?: string }; Status?: string };
+              };
+              const health = insp.State?.Health?.Status;
+              const status = insp.State?.Status;
+              if (health === 'healthy' || (!health && status === 'running')) {
+                healthy = true;
+                break;
+              }
             }
             await new Promise((r) => setTimeout(r, 2000));
+          }
+          if (!healthy && autoRollback) {
+            try {
+              const image = String(ctx.previousDigest || ctx.oldDigest || node.data.image || ctx.image || '');
+              if (image && id && agentId) {
+                await agentGateway.sendCommand(agentId, 'docker.recreate', { id, image });
+                ctx.rolledBack = true;
+              }
+            } catch (err) {
+              logger.warn('auto-rollback after unhealthy failed', {
+                err: err instanceof Error ? err.message : String(err),
+              });
+            }
           }
           ctx.__nextHandle = healthy ? 'healthy' : 'timeout';
           break;

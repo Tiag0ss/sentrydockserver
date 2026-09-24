@@ -7,11 +7,20 @@ import { AppError } from '../utils/errors';
 import logger from '../utils/logger';
 
 export function listAgents() {
-  return agentsRepo.list().map((r) => ({
-    ...r,
-    online: agentGateway.isOnline(r.id),
-    meta: r.metaJson ? JSON.parse(r.metaJson) : null,
-  }));
+  return agentsRepo.list().map((r) => {
+    let meta: Record<string, unknown> | null = null;
+    try {
+      meta = r.metaJson ? JSON.parse(r.metaJson) : null;
+    } catch {
+      meta = null;
+    }
+    return {
+      ...r,
+      online: agentGateway.isOnline(r.id),
+      meta,
+      labels: Array.isArray(meta?.labels) ? (meta!.labels as string[]) : [],
+    };
+  });
 }
 
 export async function createAgent(input: { name: string; transport?: string }, actor: string) {

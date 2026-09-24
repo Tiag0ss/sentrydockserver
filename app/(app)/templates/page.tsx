@@ -27,9 +27,23 @@ export default function TemplatesPage() {
         }}>{t('templates.create')}</button>
       </div>
       {rows.map((r) => (
-        <div key={r.id} style={{ borderBottom: '1px solid var(--border)', padding: 8 }}>
-          <strong>{r.name}</strong> <code>{r.key}</code> {r.builtin && t('templates.builtin')}
-          <pre style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'pre-wrap' }}>{r.body}</pre>
+        <div key={r.id} style={{ borderBottom: '1px solid var(--border)', padding: 8, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+          <div style={{ flex: 1 }}>
+            <strong>{r.name}</strong> <code>{r.key}</code> {r.builtin && t('templates.builtin')}
+            <pre style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'pre-wrap' }}>{r.body}</pre>
+          </div>
+          {!r.builtin && (
+            <button
+              type="button"
+              onClick={async () => {
+                await api(`/templates/${r.id}`, { method: 'DELETE' });
+                await load();
+              }}
+              style={{ background: 'transparent', border: '1px solid var(--danger)', color: 'var(--danger)', borderRadius: 6, cursor: 'pointer' }}
+            >
+              {t('common.delete')}
+            </button>
+          )}
         </div>
       ))}
     </div>

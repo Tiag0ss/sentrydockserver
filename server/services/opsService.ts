@@ -252,6 +252,34 @@ export function createWatch(input: {
   return { id };
 }
 
+export function updateWatch(id: string, input: {
+  agentId?: string;
+  containerName?: string;
+  image?: string;
+  secretId?: string | null;
+}) {
+  const existing = watchesRepo.findById(id);
+  if (!existing) throw new AppError(404, 'watch not found', 'not_found');
+  watchesRepo.update(id, {
+    ...(input.agentId != null ? { agentId: input.agentId } : {}),
+    ...(input.containerName != null ? { containerName: input.containerName } : {}),
+    ...(input.image != null ? { image: input.image } : {}),
+    ...(input.secretId !== undefined ? { secretId: input.secretId } : {}),
+  });
+  return { id };
+}
+
+export function deleteWatch(id: string) {
+  const existing = watchesRepo.findById(id);
+  if (!existing) throw new AppError(404, 'watch not found', 'not_found');
+  const linked = policiesRepo.list().filter((p) => p.watchId === id);
+  if (linked.length) {
+    throw new AppError(400, 'watch has policies; delete them first', 'watch_in_use');
+  }
+  watchesRepo.delete(id);
+  return { ok: true };
+}
+
 export function listPolicies() {
   return policiesRepo.list();
 }
@@ -285,6 +313,45 @@ export function createPolicy(input: {
     createdAt: new Date(),
   });
   return { id };
+}
+
+export function updatePolicy(id: string, input: {
+  name?: string;
+  watchId?: string;
+  flowId?: string;
+  cron?: string;
+  timezone?: string;
+  mode?: string;
+  blackoutStart?: string | null;
+  blackoutEnd?: string | null;
+  enabled?: boolean;
+}) {
+  const existing = policiesRepo.findById(id);
+  if (!existing) throw new AppError(404, 'policy not found', 'not_found');
+  const cronExpr = input.cron ?? existing.cron;
+  const tz = input.timezone ?? existing.timezone;
+  const patch: Parameters<typeof policiesRepo.update>[1] = {};
+  if (input.name != null) patch.name = input.name;
+  if (input.watchId != null) patch.watchId = input.watchId;
+  if (input.flowId != null) patch.flowId = input.flowId;
+  if (input.cron != null) patch.cron = input.cron;
+  if (input.timezone != null) patch.timezone = input.timezone;
+  if (input.mode != null) patch.mode = input.mode === 'auto' ? 'auto' : 'notify';
+  if (input.enabled != null) patch.enabled = input.enabled;
+  if (input.blackoutStart !== undefined) patch.blackoutStart = input.blackoutStart || null;
+  if (input.blackoutEnd !== undefined) patch.blackoutEnd = input.blackoutEnd || null;
+  if (input.cron != null || input.timezone != null) {
+    patch.nextRunAt = nextCronDate(cronExpr, tz);
+  }
+  policiesRepo.update(id, patch);
+  return { id };
+}
+
+export function deletePolicy(id: string) {
+  const existing = policiesRepo.findById(id);
+  if (!existing) throw new AppError(404, 'policy not found', 'not_found');
+  policiesRepo.delete(id);
+  return { ok: true };
 }
 
 export async function checkPolicy(id: string) {
@@ -340,6 +407,107 @@ export function createTemplate(input: { key: string; name: string; body: string 
     createdAt: new Date(),
   });
   return { id };
+}
+
+export function updateTemplate(id: string, input: { key?: string; name?: string; body?: string }) {
+  const rows = templatesRepo.list();
+  const existing = rows.find((r) => r.id === id);
+  if (!existing) throw new AppError(404, 'template not found', 'not_found');
+  if (existing.builtin) throw new AppError(400, 'cannot edit builtin template', 'builtin_readonly');
+  templatesRepo.update(id, {
+    ...(input.key != null ? { key: input.key } : {}),
+    ...(input.name != null ? { name: input.name } : {}),
+    ...(input.body != null ? { body: input.body } : {}),
+  });
+  return { id };
+}
+
+export function deleteTemplate(id: string) {
+  const rows = templatesRepo.list();
+  const existing = rows.find((r) => r.id === id);
+  if (!existing) throw new AppError(404, 'template not found', 'not_found');
+  if (existing.builtin) throw new AppError(400, 'cannot delete builtin template', 'builtin_readonly');
+  templatesRepo.delete(id);
+  return { ok: true };
+}
+
+export function exportOpsBundle() {
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    watches: watchesRepo.list().map((w) => ({
+      agentId: w.agentId,
+      containerName: w.containerName,
+      image: w.image,
+      secretId: w.secretId,
+    })),
+    policies: policiesRepo.list().map((p) => ({
+      name: p.name,
+      watchId: p.watchId,
+      flowId: p.flowId,
+      cron: p.cron,
+      timezone: p.timezone,
+      mode: p.mode,
+      enabled: p.enabled,
+      blackoutStart: p.blackoutStart,
+      blackoutEnd: p.blackoutEnd,
+    })),
+    templates: templatesRepo.list()
+      .filter((t) => !t.builtin)
+      .map((t) => ({ key: t.key, name: t.name, body: t.body })),
+  };
+}
+
+export function importOpsBundle(input: {
+  watches?: Array<{ agentId: string; containerName: string; image: string; secretId?: string | null }>;
+  policies?: Array<{
+    name?: string;
+    watchId: string;
+    flowId: string;
+    cron?: string;
+    timezone?: string;
+    mode?: string;
+    enabled?: boolean;
+    blackoutStart?: string | null;
+    blackoutEnd?: string | null;
+  }>;
+  templates?: Array<{ key: string; name: string; body: string }>;
+}) {
+  const created = { watches: 0, policies: 0, templates: 0 };
+  for (const w of input.watches || []) {
+    createWatch(w);
+    created.watches += 1;
+  }
+  for (const p of input.policies || []) {
+    createPolicy(p);
+    created.policies += 1;
+  }
+  for (const t of input.templates || []) {
+    const existing = templatesRepo.findByKey(t.key);
+    if (existing) {
+      if (!existing.builtin) {
+        templatesRepo.update(existing.id, { name: t.name, body: t.body });
+      }
+    } else {
+      createTemplate(t);
+      created.templates += 1;
+    }
+  }
+  return created;
+}
+
+export function updateAgentLabels(id: string, labels: string[]) {
+  const row = agentsRepo.findById(id);
+  if (!row) throw new AppError(404, 'agent not found', 'not_found');
+  let meta: Record<string, unknown> = {};
+  try {
+    meta = row.metaJson ? JSON.parse(row.metaJson) : {};
+  } catch {
+    meta = {};
+  }
+  meta.labels = labels.map((l) => String(l).trim()).filter(Boolean);
+  agentsRepo.update(id, { metaJson: JSON.stringify(meta) });
+  return { id, labels: meta.labels };
 }
 
 export function listWebhookTriggers() {
@@ -429,13 +597,60 @@ export function getDashboard() {
     activeRuns: executing.map((r) => enrichRun(r, names, graphs)),
     upcomingPolicies: upcoming,
     history: history.map((r) => enrichRun(r, names, graphs)),
-    agents: agentRows.map((a) => ({
-      id: a.id,
-      name: a.name,
-      status: a.status,
-      online: agentGateway.isOnline(a.id),
-      meta: a.metaJson ? JSON.parse(a.metaJson) : null,
-    })),
+    agents: agentRows.map((a) => {
+      let meta: Record<string, unknown> | null = null;
+      try {
+        meta = a.metaJson ? JSON.parse(a.metaJson) : null;
+      } catch {
+        meta = null;
+      }
+      return {
+        id: a.id,
+        name: a.name,
+        status: a.status,
+        online: agentGateway.isOnline(a.id),
+        hostname: a.hostname,
+        transport: a.transport,
+        protocolVersion: a.protocolVersion,
+        meta,
+        labels: Array.isArray(meta?.labels) ? meta!.labels as string[] : [],
+        inventory: meta ? {
+          diskUsedBytes: typeof meta.diskUsedBytes === 'number' ? meta.diskUsedBytes : null,
+          diskTotalBytes: typeof meta.diskTotalBytes === 'number' ? meta.diskTotalBytes : null,
+          danglingImages: typeof meta.danglingImages === 'number' ? meta.danglingImages : null,
+          containers: typeof meta.containers === 'number' ? meta.containers : null,
+        } : null,
+      };
+    }),
+    inventoryAlerts: agentRows.flatMap((a) => {
+      let meta: Record<string, unknown> = {};
+      try {
+        meta = a.metaJson ? JSON.parse(a.metaJson) : {};
+      } catch {
+        meta = {};
+      }
+      const alerts: Array<{ agentId: string; agentName: string; kind: string; message: string }> = [];
+      const dangling = typeof meta.danglingImages === 'number' ? meta.danglingImages : 0;
+      if (dangling >= 5) {
+        alerts.push({
+          agentId: a.id,
+          agentName: a.name,
+          kind: 'dangling',
+          message: `${dangling} dangling images`,
+        });
+      }
+      const used = typeof meta.diskUsedBytes === 'number' ? meta.diskUsedBytes : null;
+      const total = typeof meta.diskTotalBytes === 'number' ? meta.diskTotalBytes : null;
+      if (used != null && total != null && total > 0 && used / total >= 0.85) {
+        alerts.push({
+          agentId: a.id,
+          agentName: a.name,
+          kind: 'disk',
+          message: `disk ${Math.round((used / total) * 100)}% used`,
+        });
+      }
+      return alerts;
+    }),
     pendingUpdates,
     attention: awaiting.map((r) => enrichRun(r, names, graphs)),
     summary: {

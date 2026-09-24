@@ -108,6 +108,12 @@ export const watchesRepo = {
   insert(row: typeof containerWatches.$inferInsert) {
     db.insert(containerWatches).values(row).run();
   },
+  update(id: string, patch: Partial<typeof containerWatches.$inferInsert>) {
+    db.update(containerWatches).set(patch).where(eq(containerWatches.id, id)).run();
+  },
+  delete(id: string) {
+    db.delete(containerWatches).where(eq(containerWatches.id, id)).run();
+  },
 };
 
 export const policiesRepo = {
@@ -125,6 +131,9 @@ export const policiesRepo = {
   },
   update(id: string, patch: Partial<typeof updatePolicies.$inferInsert>) {
     db.update(updatePolicies).set(patch).where(eq(updatePolicies.id, id)).run();
+  },
+  delete(id: string) {
+    db.delete(updatePolicies).where(eq(updatePolicies.id, id)).run();
   },
 };
 
@@ -155,6 +164,12 @@ export const templatesRepo = {
   },
   insert(row: typeof messageTemplates.$inferInsert) {
     db.insert(messageTemplates).values(row).run();
+  },
+  update(id: string, patch: Partial<typeof messageTemplates.$inferInsert>) {
+    db.update(messageTemplates).set(patch).where(eq(messageTemplates.id, id)).run();
+  },
+  delete(id: string) {
+    db.delete(messageTemplates).where(eq(messageTemplates.id, id)).run();
   },
 };
 

@@ -18,7 +18,12 @@ import {
   rerunRunSchema,
   createWatchSchema,
   createPolicySchema,
+  updateWatchSchema,
+  updatePolicySchema,
   createTemplateSchema,
+  updateTemplateSchema,
+  updateAgentSchema,
+  importBundleSchema,
   createWebhookTriggerSchema,
   updateSettingSchema,
 } from '../validation/schemas';
@@ -85,6 +90,10 @@ apiRouter.delete('/agents/:id', authRequired, requirePasswordOk, requireModify, 
   await agentsService.deleteAgent(param(req), req.user!.username);
   res.json({ ok: true });
 }));
+
+apiRouter.patch('/agents/:id', authRequired, requirePasswordOk, requireModify, validateBody(updateAgentSchema), (req, res) => {
+  res.json(ops.updateAgentLabels(param(req), req.body.labels || []));
+});
 
 apiRouter.get('/agents/:id/containers', authRequired, requirePasswordOk, asyncHandler(async (req, res) => {
   const data = await agentsService.listAgentContainers(param(req));
@@ -164,12 +173,28 @@ apiRouter.post('/watches', authRequired, requirePasswordOk, requireModify, valid
   res.status(201).json(ops.createWatch(req.body));
 });
 
+apiRouter.patch('/watches/:id', authRequired, requirePasswordOk, requireModify, validateBody(updateWatchSchema), (req, res) => {
+  res.json(ops.updateWatch(param(req), req.body));
+});
+
+apiRouter.delete('/watches/:id', authRequired, requirePasswordOk, requireModify, (req, res) => {
+  res.json(ops.deleteWatch(param(req)));
+});
+
 apiRouter.get('/policies', authRequired, requirePasswordOk, (_req, res) => {
   res.json(ops.listPolicies());
 });
 
 apiRouter.post('/policies', authRequired, requirePasswordOk, requireModify, validateBody(createPolicySchema), (req, res) => {
   res.status(201).json(ops.createPolicy(req.body));
+});
+
+apiRouter.patch('/policies/:id', authRequired, requirePasswordOk, requireModify, validateBody(updatePolicySchema), (req, res) => {
+  res.json(ops.updatePolicy(param(req), req.body));
+});
+
+apiRouter.delete('/policies/:id', authRequired, requirePasswordOk, requireModify, (req, res) => {
+  res.json(ops.deletePolicy(param(req)));
 });
 
 apiRouter.post('/policies/:id/check', authRequired, requirePasswordOk, requireModify, asyncHandler(async (req, res) => {
@@ -190,6 +215,22 @@ apiRouter.get('/templates', authRequired, requirePasswordOk, (_req, res) => {
 
 apiRouter.post('/templates', authRequired, requirePasswordOk, requireModify, validateBody(createTemplateSchema), (req, res) => {
   res.status(201).json(ops.createTemplate(req.body));
+});
+
+apiRouter.patch('/templates/:id', authRequired, requirePasswordOk, requireModify, validateBody(updateTemplateSchema), (req, res) => {
+  res.json(ops.updateTemplate(param(req), req.body));
+});
+
+apiRouter.delete('/templates/:id', authRequired, requirePasswordOk, requireModify, (req, res) => {
+  res.json(ops.deleteTemplate(param(req)));
+});
+
+apiRouter.get('/ops/export', authRequired, requirePasswordOk, requireModify, (_req, res) => {
+  res.json(ops.exportOpsBundle());
+});
+
+apiRouter.post('/ops/import', authRequired, requirePasswordOk, requireModify, validateBody(importBundleSchema), (req, res) => {
+  res.json(ops.importOpsBundle(req.body));
 });
 
 apiRouter.get('/webhook-triggers', authRequired, requirePasswordOk, (_req, res) => {

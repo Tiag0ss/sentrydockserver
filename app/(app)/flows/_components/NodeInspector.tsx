@@ -53,18 +53,21 @@ export function NodeInspector({ selectedNode, onPatch }: Props) {
   const { t } = useI18n();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [secrets, setSecrets] = useState<SecretMeta[]>([]);
+  const [templates, setTemplates] = useState<Array<{ id: string; key: string; name: string; body: string }>>([]);
   const [containers, setContainers] = useState<ContainerRow[]>([]);
   const [loadingContainers, setLoadingContainers] = useState(false);
 
   useEffect(() => {
     void (async () => {
       try {
-        const [a, s] = await Promise.all([
+        const [a, s, tpl] = await Promise.all([
           api<Agent[]>('/agents'),
           api<SecretMeta[]>('/secrets'),
+          api<Array<{ id: string; key: string; name: string; body: string }>>('/templates'),
         ]);
         setAgents(a);
         setSecrets(s);
+        setTemplates(tpl);
       } catch {
         /* keep empty */
       }
@@ -309,7 +312,33 @@ export function NodeInspector({ selectedNode, onPatch }: Props) {
 
       {['compose_up', 'compose_down'].includes(type) && field('projectPath', t('inspector.projectPath'), '/path/to/compose')}
 
-      {type === 'wait_healthy' && field('timeoutMs', t('inspector.timeoutMs'), '60000')}
+      {type === 'wait_healthy' && (
+        <>
+          {field('timeoutMs', t('inspector.timeoutMs'), '60000')}
+          <label>
+            {t('inspector.probeType')}
+            <select
+              style={inputStyle}
+              value={String(selectedNode.data.probeType || 'docker')}
+              onChange={(e) => patch('probeType', e.target.value)}
+            >
+              <option value="docker">{t('inspector.probeDocker')}</option>
+              <option value="http">{t('inspector.probeHttp')}</option>
+            </select>
+          </label>
+          {String(selectedNode.data.probeType || 'docker') === 'http' && (
+            field('healthUrl', t('inspector.healthUrl'), 'http://127.0.0.1:8080/health')
+          )}
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input
+              type="checkbox"
+              checked={Boolean(selectedNode.data.autoRollback)}
+              onChange={(e) => patch('autoRollback', e.target.checked)}
+            />
+            {t('inspector.autoRollback')}
+          </label>
+        </>
+      )}
 
       {type === 'condition' && (
         <SearchSelect
@@ -357,6 +386,26 @@ export function NodeInspector({ selectedNode, onPatch }: Props) {
             >
               {['POST', 'PUT', 'PATCH', 'GET'].map((m) => (
                 <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {t('inspector.templateKey')}
+            <select
+              style={inputStyle}
+              value={String(selectedNode.data.templateKey || '')}
+              onChange={(e) => {
+                const key = e.target.value;
+                const tpl = templates.find((x) => x.key === key);
+                onPatch(id, {
+                  templateKey: key,
+                  ...(tpl?.body ? { templateBody: tpl.body } : {}),
+                });
+              }}
+            >
+              <option value="">{t('inspector.selectTemplate')}</option>
+              {templates.map((tpl) => (
+                <option key={tpl.id} value={tpl.key}>{tpl.name} ({tpl.key})</option>
               ))}
             </select>
           </label>

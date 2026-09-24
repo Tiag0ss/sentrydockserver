@@ -79,10 +79,45 @@ export const createPolicySchema = z.object({
   enabled: z.boolean().optional(),
 });
 
+export const updateWatchSchema = createWatchSchema.partial();
+
+export const updatePolicySchema = z.object({
+  name: z.string().optional(),
+  watchId: z.string().min(1).optional(),
+  flowId: z.string().min(1).optional(),
+  cron: z.string().optional(),
+  timezone: z.string().optional(),
+  mode: z.enum(['auto', 'notify']).optional(),
+  blackoutStart: z.string().nullable().optional(),
+  blackoutEnd: z.string().nullable().optional(),
+  enabled: z.boolean().optional(),
+});
+
 export const createTemplateSchema = z.object({
   key: z.string().min(1),
   name: z.string().min(1),
   body: z.string().min(1),
+});
+
+export const updateTemplateSchema = z.object({
+  key: z.string().min(1).optional(),
+  name: z.string().min(1).optional(),
+  body: z.string().min(1).optional(),
+});
+
+export const updateAgentSchema = z.object({
+  labels: z.array(z.string()).optional(),
+});
+
+export const importBundleSchema = z.object({
+  version: z.number().optional(),
+  policies: z.array(z.unknown()).optional(),
+  templates: z.array(z.object({
+    key: z.string(),
+    name: z.string(),
+    body: z.string(),
+  })).optional(),
+  watches: z.array(z.unknown()).optional(),
 });
 
 export const createWebhookTriggerSchema = z.object({

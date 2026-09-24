@@ -5,6 +5,7 @@ import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import path from 'path';
 import { agentsRepo } from '../repositories/agentsRepo';
+import { settingsRepo } from '../repositories/domainRepo';
 import { hashToken } from './crypto';
 import { audit } from './audit';
 import logger from '../utils/logger';
@@ -26,9 +27,35 @@ export type ConnectedAgent = {
 class AgentGateway extends EventEmitter {
   private byId = new Map<string, ConnectedAgent>();
   private pending = new Map<string, Pending>();
-  private maxParallel = Number(process.env.MAX_PARALLEL_COMMANDS || 20);
   private inFlight = 0;
   private queue: Array<() => void> = [];
+
+  private resolveMaxParallel(): number {
+    try {
+      const row = settingsRepo.get('max_parallel_commands');
+      if (row?.value) {
+        const n = Number(row.value);
+        if (Number.isFinite(n) && n > 0) return Math.floor(n);
+      }
+    } catch {
+      /* ignore */
+    }
+    return Number(process.env.MAX_PARALLEL_COMMANDS || 20);
+  }
+
+  private acquireSlot(): Promise<void> {
+    const maxParallel = this.resolveMaxParallel();
+    if (this.inFlight < maxParallel) {
+      this.inFlight += 1;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      this.queue.push(() => {
+        this.inFlight += 1;
+        resolve();
+      });
+    });
+  }
 
   private authenticateAgent(token: string, agentName?: string) {
     if (!token) return null;
@@ -129,7 +156,19 @@ class AgentGateway extends EventEmitter {
     }
 
     if (env.type === 'heartbeat') {
-      agentsRepo.update(agentId, { lastSeenAt: new Date(), status: row.status === 'incompatible' ? 'incompatible' : 'online' });
+      const hb = (env.payload || {}) as { containers?: number };
+      let meta: Record<string, unknown> = {};
+      try {
+        meta = row.metaJson ? JSON.parse(row.metaJson) : {};
+      } catch {
+        meta = {};
+      }
+      if (typeof hb.containers === 'number') meta.containers = hb.containers;
+      agentsRepo.update(agentId, {
+        lastSeenAt: new Date(),
+        status: row.status === 'incompatible' ? 'incompatible' : 'online',
+        metaJson: JSON.stringify(meta),
+      });
       return;
     }
 
@@ -147,19 +186,16 @@ class AgentGateway extends EventEmitter {
     }
 
     if (env.type === 'inventory') {
-      agentsRepo.update(agentId, { metaJson: JSON.stringify(env.payload), lastSeenAt: new Date() });
+      let meta: Record<string, unknown> = {};
+      try {
+        meta = row.metaJson ? JSON.parse(row.metaJson) : {};
+      } catch {
+        meta = {};
+      }
+      const inv = (env.payload || {}) as Record<string, unknown>;
+      Object.assign(meta, inv);
+      agentsRepo.update(agentId, { metaJson: JSON.stringify(meta), lastSeenAt: new Date() });
     }
-  }
-
-  private acquireSlot(): Promise<void> {
-    if (this.inFlight < this.maxParallel) {
-      this.inFlight += 1;
-      return Promise.resolve();
-    }
-    return new Promise((resolve) => this.queue.push(() => {
-      this.inFlight += 1;
-      resolve();
-    }));
   }
 
   private releaseSlot() {

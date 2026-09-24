@@ -41,7 +41,21 @@ export type DashboardData = {
     currentNodeType?: string | null;
     context?: { containerName?: string; image?: string } | null;
   }>;
-  agents: Array<{ id: string; name: string; status: string; online: boolean; meta: { diskUsedBytes?: number; diskTotalBytes?: number } | null }>;
+  agents: Array<{
+    id: string;
+    name: string;
+    status: string;
+    online: boolean;
+    labels?: string[];
+    inventory?: {
+      diskUsedBytes?: number | null;
+      diskTotalBytes?: number | null;
+      danglingImages?: number | null;
+      containers?: number | null;
+    } | null;
+    meta: Record<string, unknown> | null;
+  }>;
+  inventoryAlerts?: Array<{ agentId: string; agentName: string; kind: string; message: string }>;
   pendingUpdates: Array<{ id: string; image: string; status: string }>;
   attention: Array<{
     id: string;
@@ -273,6 +287,47 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
             <span style={{ marginLeft: 'auto', fontSize: 13 }}>{formatDate(p.nextRunAt)}</span>
           </div>
         ))}
+      </Section>
+
+      <Section
+        title={t('dashboard.inventory')}
+        action={<Link href="/agents" style={{ fontSize: 13, color: 'var(--muted)' }}>{t('dashboard.viewAgents')}</Link>}
+      >
+        {(data.inventoryAlerts?.length || 0) === 0 && data.agents.length === 0 && (
+          <Empty>{t('dashboard.noAgents')}</Empty>
+        )}
+        {(data.inventoryAlerts?.length || 0) === 0 && data.agents.length > 0 && (
+          <Empty>{t('dashboard.noInventoryAlerts')}</Empty>
+        )}
+        {(data.inventoryAlerts || []).map((a) => (
+          <div key={`${a.agentId}-${a.kind}`} style={{ padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: 14 }}>
+            <strong>{a.agentName}</strong>
+            <span style={{ color: 'var(--warn)', marginLeft: 8 }}>{a.message}</span>
+          </div>
+        ))}
+        {data.agents.map((a) => {
+          const inv = a.inventory;
+          if (!inv) return null;
+          const parts = [
+            inv.containers != null ? `${inv.containers} ${t('dashboard.containersCount')}` : null,
+            inv.danglingImages != null ? `${inv.danglingImages} ${t('dashboard.danglingImages')}` : null,
+            inv.diskUsedBytes != null && inv.diskTotalBytes
+              ? `${t('dashboard.diskUsage')} ${Math.round((inv.diskUsedBytes / inv.diskTotalBytes) * 100)}%`
+              : inv.diskUsedBytes != null
+                ? `${t('dashboard.diskUsage')} ${(inv.diskUsedBytes / (1024 ** 3)).toFixed(1)} GiB`
+                : null,
+            a.labels?.length ? a.labels.join(', ') : null,
+          ].filter(Boolean);
+          if (!parts.length) return null;
+          return (
+            <div key={a.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: 13, color: 'var(--muted)' }}>
+              <strong style={{ color: 'var(--text)' }}>{a.name}</strong>
+              {a.online ? '' : ` · ${tt(t, 'status', a.status || 'offline')}`}
+              {' · '}
+              {parts.join(' · ')}
+            </div>
+          );
+        })}
       </Section>
 
       <Section
