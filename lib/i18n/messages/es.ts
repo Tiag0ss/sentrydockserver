@@ -9,6 +9,8 @@ export const es: Messages = {
     delete: 'Eliminar',
     edit: 'Editar',
     back: 'Volver',
+    cancel: 'Cancelar',
+    close: 'Cerrar',
     search: 'Buscar…',
     none: '— ninguno —',
     logout: 'Salir',

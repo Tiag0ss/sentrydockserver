@@ -6,7 +6,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 import { tt } from '@/lib/i18n/translate';
 import Link from 'next/link';
 import {
-  PageHeader, Button, Input, Select, Field, Panel, DataRow, Alert, Badge, EmptyState,
+  PageHeader, Button, Input, Select, Field, Panel, DataRow, Alert, Badge, EmptyState, Modal,
 } from '@/components/ui';
 
 type UserRow = {
@@ -25,7 +25,10 @@ export default function UsersPage() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
+  const [open, setOpen] = useState(false);
   const [newUser, setNewUser] = useState({ username: '', password: '', role: 'monitor' });
+  const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
   const [resetFor, setResetFor] = useState<string | null>(null);
   const [resetPassword, setResetPassword] = useState('');
 
@@ -44,9 +47,15 @@ export default function UsersPage() {
 
   useEffect(() => { void load(); }, [load]);
 
+  function openCreate() {
+    setNewUser({ username: '', password: '', role: 'monitor' });
+    setFormError('');
+    setOpen(true);
+  }
+
   async function create() {
-    setMsg('');
-    setError('');
+    setFormError('');
+    setSaving(true);
     try {
       await api('/users', {
         method: 'POST',
@@ -57,11 +66,13 @@ export default function UsersPage() {
           mustChangePassword: true,
         }),
       });
-      setNewUser({ username: '', password: '', role: 'monitor' });
+      setOpen(false);
       setMsg(t('users.created'));
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('common.error'));
+      setFormError(e instanceof Error ? e.message : t('common.error'));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -117,7 +128,11 @@ export default function UsersPage() {
 
   return (
     <div className="sd-page">
-      <PageHeader title={t('users.title')} subtitle={t('users.subtitle')} />
+      <PageHeader
+        title={t('users.title')}
+        subtitle={t('users.subtitle')}
+        actions={<Button onClick={openCreate}>{t('users.create')}</Button>}
+      />
       {error ? <Alert>{error}</Alert> : null}
       {msg ? <Alert tone="ok">{msg}</Alert> : null}
 
@@ -128,28 +143,6 @@ export default function UsersPage() {
           <Badge tone="accent">{tt(t, 'roles', me.role)}</Badge>
           <Link href="/change-password" className="sd-btn-ghost">{t('users.changeMyPassword')}</Link>
         </div>
-      </Panel>
-
-      <Panel>
-        <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>{t('users.create')}</h2>
-        <div className="sd-form-row">
-          <Field label={t('users.username')}>
-            <Input value={newUser.username} onChange={(e) => setNewUser((s) => ({ ...s, username: e.target.value }))} />
-          </Field>
-          <Field label={t('users.password')}>
-            <Input type="password" value={newUser.password} onChange={(e) => setNewUser((s) => ({ ...s, password: e.target.value }))} />
-          </Field>
-          <Field label="Role">
-            <Select value={newUser.role} onChange={(e) => setNewUser((s) => ({ ...s, role: e.target.value }))}>
-              <option value="modify">{t('users.roleModify')}</option>
-              <option value="monitor">{t('users.roleMonitor')}</option>
-            </Select>
-          </Field>
-          <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-            <Button onClick={() => { void create(); }}>{t('common.create')}</Button>
-          </div>
-        </div>
-        <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--sd-muted)' }}>{t('users.createHint')}</p>
       </Panel>
 
       <Panel>
@@ -208,6 +201,40 @@ export default function UsersPage() {
           />
         ))}
       </Panel>
+
+      <Modal
+        open={open}
+        title={t('users.create')}
+        onClose={() => setOpen(false)}
+        footer={(
+          <>
+            <Button variant="ghost" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
+            <Button
+              disabled={!newUser.username.trim() || !newUser.password || saving}
+              onClick={() => { void create(); }}
+            >
+              {saving ? t('common.loading') : t('common.create')}
+            </Button>
+          </>
+        )}
+      >
+        {formError ? <Alert>{formError}</Alert> : null}
+        <div className="sd-stack">
+          <Field label={t('users.username')}>
+            <Input value={newUser.username} onChange={(e) => setNewUser((s) => ({ ...s, username: e.target.value }))} autoFocus />
+          </Field>
+          <Field label={t('users.password')}>
+            <Input type="password" value={newUser.password} onChange={(e) => setNewUser((s) => ({ ...s, password: e.target.value }))} />
+          </Field>
+          <Field label="Role">
+            <Select value={newUser.role} onChange={(e) => setNewUser((s) => ({ ...s, role: e.target.value }))}>
+              <option value="modify">{t('users.roleModify')}</option>
+              <option value="monitor">{t('users.roleMonitor')}</option>
+            </Select>
+          </Field>
+          <p style={{ margin: 0, fontSize: 12, color: 'var(--sd-muted)' }}>{t('users.createHint')}</p>
+        </div>
+      </Modal>
     </div>
   );
 }

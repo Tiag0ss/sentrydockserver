@@ -9,6 +9,8 @@ export const fr: Messages = {
     delete: 'Supprimer',
     edit: 'Modifier',
     back: 'Retour',
+    cancel: 'Annuler',
+    close: 'Fermer',
     search: 'Rechercher…',
     none: '— aucun —',
     logout: 'Déconnexion',

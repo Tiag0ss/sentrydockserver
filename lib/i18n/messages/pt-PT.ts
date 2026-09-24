@@ -9,6 +9,8 @@ export const ptPT: Messages = {
     delete: 'Apagar',
     edit: 'Editar',
     back: 'Voltar',
+    cancel: 'Cancelar',
+    close: 'Fechar',
     search: 'Pesquisar…',
     none: '— nenhum —',
     logout: 'Sair',

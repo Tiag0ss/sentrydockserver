@@ -5,7 +5,7 @@ import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { SearchSelect, type SearchOption } from '../flows/_components/SearchSelect';
 import {
-  PageHeader, Button, Input, Select, Field, Tabs, Alert, EmptyState, DataRow, Panel,
+  PageHeader, Button, Input, Select, Field, Tabs, Alert, EmptyState, DataRow, Panel, Modal,
 } from '@/components/ui';
 
 type Watch = {
@@ -74,7 +74,11 @@ export default function PoliciesPage() {
   const [containersError, setContainersError] = useState('');
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
+  const [watchOpen, setWatchOpen] = useState(false);
+  const [policyOpen, setPolicyOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const [watchForm, setWatchForm] = useState({
     agentId: '',
@@ -97,12 +101,6 @@ export default function PoliciesPage() {
     setAgents(a);
     setFlows(f);
     setSecrets(s);
-    setWatchForm((prev) => ({ ...prev, agentId: prev.agentId || a[0]?.id || '' }));
-    setPolicyForm((prev) => ({
-      ...prev,
-      watchId: prev.watchId || w[0]?.id || '',
-      flowId: prev.flowId || f[0]?.id || '',
-    }));
   }, []);
 
   useEffect(() => {
@@ -110,9 +108,11 @@ export default function PoliciesPage() {
   }, [load, t]);
 
   useEffect(() => {
-    if (!watchForm.agentId) {
-      setContainers([]);
-      setContainersError('');
+    if (!watchForm.agentId || !watchOpen) {
+      if (!watchForm.agentId) {
+        setContainers([]);
+        setContainersError('');
+      }
       return;
     }
     let cancelled = false;
@@ -132,7 +132,7 @@ export default function PoliciesPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [watchForm.agentId, t]);
+  }, [watchForm.agentId, watchOpen, t]);
 
   const containerOptions: SearchOption[] = useMemo(
     () => containers.map((c) => {
@@ -185,6 +185,28 @@ export default function PoliciesPage() {
     setWatchForm((s) => ({ ...s, containerName: name, image: c?.image || s.image }));
   }
 
+  function openWatchCreate() {
+    setWatchForm({
+      agentId: agents[0]?.id || '',
+      containerName: '',
+      image: '',
+      secretId: '',
+    });
+    setFormError('');
+    setWatchOpen(true);
+  }
+
+  function openPolicyCreate() {
+    setEditingId(null);
+    setPolicyForm({
+      ...emptyPolicyForm,
+      watchId: watches[0]?.id || '',
+      flowId: flows[0]?.id || '',
+    });
+    setFormError('');
+    setPolicyOpen(true);
+  }
+
   function startEdit(p: Policy) {
     setEditingId(p.id);
     setPolicyForm({
@@ -198,27 +220,18 @@ export default function PoliciesPage() {
       blackoutEnd: p.blackoutEnd || '',
       enabled: p.enabled,
     });
+    setFormError('');
     setTab('policies');
-    setError('');
-    setMsg('');
-  }
-
-  function resetPolicyForm() {
-    setEditingId(null);
-    setPolicyForm({
-      ...emptyPolicyForm,
-      watchId: watches[0]?.id || '',
-      flowId: flows[0]?.id || '',
-    });
+    setPolicyOpen(true);
   }
 
   async function createWatch() {
-    setError('');
-    setMsg('');
+    setFormError('');
     if (!watchForm.agentId || !watchForm.containerName || !watchForm.image) {
-      setError(t('policies.watchIncomplete'));
+      setFormError(t('policies.watchIncomplete'));
       return;
     }
+    setSaving(true);
     try {
       await api('/watches', {
         method: 'POST',
@@ -229,19 +242,20 @@ export default function PoliciesPage() {
           secretId: watchForm.secretId || null,
         }),
       });
+      setWatchOpen(false);
       setMsg(t('policies.watchCreated'));
-      setWatchForm((s) => ({ ...s, containerName: '', image: '' }));
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('common.error'));
+      setFormError(e instanceof Error ? e.message : t('common.error'));
+    } finally {
+      setSaving(false);
     }
   }
 
   async function savePolicy() {
-    setError('');
-    setMsg('');
+    setFormError('');
     if (!policyForm.watchId || !policyForm.flowId) {
-      setError(t('policies.policyIncomplete'));
+      setFormError(t('policies.policyIncomplete'));
       return;
     }
     const watch = watches.find((w) => w.id === policyForm.watchId);
@@ -253,6 +267,7 @@ export default function PoliciesPage() {
       blackoutStart: policyForm.blackoutStart || null,
       blackoutEnd: policyForm.blackoutEnd || null,
     };
+    setSaving(true);
     try {
       if (editingId) {
         await api(`/policies/${editingId}`, { method: 'PATCH', body: JSON.stringify(body) });
@@ -261,10 +276,13 @@ export default function PoliciesPage() {
         await api('/policies', { method: 'POST', body: JSON.stringify(body) });
         setMsg(t('policies.policyCreated'));
       }
-      resetPolicyForm();
+      setPolicyOpen(false);
+      setEditingId(null);
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('common.error'));
+      setFormError(e instanceof Error ? e.message : t('common.error'));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -358,51 +376,12 @@ export default function PoliciesPage() {
 
       {tab === 'watches' && (
         <Panel>
-          <h2 style={{ margin: '0 0 4px', fontSize: 16 }}>{t('policies.watches')}</h2>
-          <p style={{ margin: '0 0 14px', color: 'var(--sd-muted)', fontSize: 13 }}>{t('policies.watchesHint')}</p>
-          <div className="sd-stack" style={{ maxWidth: 560, marginBottom: 16 }}>
-            <SearchSelect
-              label={t('inspector.agent')}
-              value={watchForm.agentId}
-              options={agentOptions}
-              onChange={(v) => setWatchForm((s) => ({ ...s, agentId: v, containerName: '', image: '' }))}
-              emptyLabel={t('inspector.selectAgent')}
-              placeholder={t('inspector.searchAgent')}
-            />
-            <SearchSelect
-              label={t('inspector.container')}
-              value={watchForm.containerName}
-              options={containerOptions}
-              onChange={selectContainer}
-              emptyLabel={watchForm.agentId ? t('inspector.selectContainer') : t('inspector.pickAgentFirst')}
-              placeholder={t('inspector.searchContainer')}
-              disabled={!watchForm.agentId}
-              loading={loadingContainers}
-            />
-            {containersError ? <Alert>{containersError}</Alert> : null}
-            <Field label={t('policies.image')}>
-              <Input
-                value={watchForm.image}
-                onChange={(e) => setWatchForm((s) => ({ ...s, image: e.target.value }))}
-                placeholder="registry/app:tag"
-              />
-              <span style={{ color: 'var(--sd-muted)', fontSize: 12 }}>{t('policies.imageHint')}</span>
-            </Field>
-            <SearchSelect
-              label={t('inspector.secret')}
-              value={watchForm.secretId}
-              options={secretOptions}
-              onChange={(v) => setWatchForm((s) => ({ ...s, secretId: v }))}
-              emptyLabel={t('common.none')}
-              placeholder={t('inspector.searchSecret')}
-            />
-            <Button
-              disabled={!watchForm.containerName || !watchForm.image}
-              onClick={() => { void createWatch(); }}
-              style={{ width: 'fit-content' }}
-            >
-              {t('policies.addWatch')}
-            </Button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 12 }}>
+            <div>
+              <h2 style={{ margin: '0 0 4px', fontSize: 16 }}>{t('policies.watches')}</h2>
+              <p style={{ margin: 0, color: 'var(--sd-muted)', fontSize: 13 }}>{t('policies.watchesHint')}</p>
+            </div>
+            <Button onClick={openWatchCreate}>{t('policies.addWatch')}</Button>
           </div>
           {watches.length === 0 ? <EmptyState>{t('policies.noWatches')}</EmptyState> : null}
           {watches.map((w) => (
@@ -433,8 +412,15 @@ export default function PoliciesPage() {
 
       {tab === 'policies' && (
         <Panel>
-          <h2 style={{ margin: '0 0 4px', fontSize: 16 }}>{t('policies.policies')}</h2>
-          <p style={{ margin: '0 0 14px', color: 'var(--sd-muted)', fontSize: 13 }}>{t('policies.policiesHint')}</p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 12 }}>
+            <div>
+              <h2 style={{ margin: '0 0 4px', fontSize: 16 }}>{t('policies.policies')}</h2>
+              <p style={{ margin: 0, color: 'var(--sd-muted)', fontSize: 13 }}>{t('policies.policiesHint')}</p>
+            </div>
+            {watches.length > 0 ? (
+              <Button onClick={openPolicyCreate}>{t('policies.addPolicy')}</Button>
+            ) : null}
+          </div>
 
           {watches.length === 0 ? (
             <EmptyState>
@@ -443,80 +429,7 @@ export default function PoliciesPage() {
                 {t('policies.tabWatches')}
               </Button>
             </EmptyState>
-          ) : (
-            <div className="sd-stack" style={{ maxWidth: 640, marginBottom: 20 }}>
-              <SearchSelect
-                label={t('policies.selectWatch')}
-                value={policyForm.watchId}
-                options={watchOptions}
-                onChange={(v) => setPolicyForm((s) => ({ ...s, watchId: v }))}
-                emptyLabel={t('policies.selectWatch')}
-                placeholder={t('common.search')}
-              />
-              <SearchSelect
-                label={t('policies.selectFlow')}
-                value={policyForm.flowId}
-                options={flowOptions}
-                onChange={(v) => setPolicyForm((s) => ({ ...s, flowId: v }))}
-                emptyLabel={t('policies.selectFlow')}
-                placeholder={t('common.search')}
-              />
-              <div className="sd-form-row">
-                <Field label={t('policies.modeNotify')}>
-                  <Select
-                    value={policyForm.mode}
-                    onChange={(e) => setPolicyForm((s) => ({ ...s, mode: e.target.value as 'auto' | 'notify' }))}
-                  >
-                    <option value="notify">{t('policies.modeNotify')}</option>
-                    <option value="auto">{t('policies.modeAuto')}</option>
-                  </Select>
-                </Field>
-                <Field label={t('policies.cron')}>
-                  <Input
-                    value={policyForm.cron}
-                    onChange={(e) => setPolicyForm((s) => ({ ...s, cron: e.target.value }))}
-                    title={t('policies.cronHint')}
-                  />
-                </Field>
-                <Field label={t('policies.timezone')}>
-                  <Input
-                    value={policyForm.timezone}
-                    onChange={(e) => setPolicyForm((s) => ({ ...s, timezone: e.target.value }))}
-                  />
-                </Field>
-              </div>
-              <div className="sd-form-row">
-                <Field label={t('policies.blackoutStart')}>
-                  <Input
-                    value={policyForm.blackoutStart}
-                    onChange={(e) => setPolicyForm((s) => ({ ...s, blackoutStart: e.target.value }))}
-                    placeholder="HH:mm"
-                  />
-                </Field>
-                <Field label={t('policies.blackoutEnd')}>
-                  <Input
-                    value={policyForm.blackoutEnd}
-                    onChange={(e) => setPolicyForm((s) => ({ ...s, blackoutEnd: e.target.value }))}
-                    placeholder="HH:mm"
-                  />
-                </Field>
-                <Field label={t('policies.policyNameOptional')}>
-                  <Input
-                    value={policyForm.name}
-                    onChange={(e) => setPolicyForm((s) => ({ ...s, name: e.target.value }))}
-                  />
-                </Field>
-              </div>
-              <div className="sd-actions">
-                <Button onClick={() => { void savePolicy(); }}>
-                  {editingId ? t('policies.savePolicy') : t('policies.addPolicy')}
-                </Button>
-                {editingId ? (
-                  <Button variant="ghost" onClick={resetPolicyForm}>{t('policies.cancelEdit')}</Button>
-                ) : null}
-              </div>
-            </div>
-          )}
+          ) : null}
 
           {policies.length === 0 && watches.length > 0 ? (
             <EmptyState>{t('policies.noPolicies')}</EmptyState>
@@ -549,7 +462,10 @@ export default function PoliciesPage() {
                       if (!confirm(t('policies.deletePolicyConfirm', { name: p.name }))) return;
                       try {
                         await api(`/policies/${p.id}`, { method: 'DELETE' });
-                        if (editingId === p.id) resetPolicyForm();
+                        if (editingId === p.id) {
+                          setEditingId(null);
+                          setPolicyOpen(false);
+                        }
                         await load();
                       } catch (e) {
                         setError(e instanceof Error ? e.message : t('common.error'));
@@ -592,6 +508,148 @@ export default function PoliciesPage() {
           </div>
         </Panel>
       )}
+
+      <Modal
+        open={watchOpen}
+        title={t('policies.addWatch')}
+        onClose={() => setWatchOpen(false)}
+        footer={(
+          <>
+            <Button variant="ghost" onClick={() => setWatchOpen(false)}>{t('common.cancel')}</Button>
+            <Button
+              disabled={!watchForm.containerName || !watchForm.image || saving}
+              onClick={() => { void createWatch(); }}
+            >
+              {saving ? t('common.loading') : t('common.create')}
+            </Button>
+          </>
+        )}
+      >
+        {formError ? <Alert>{formError}</Alert> : null}
+        {containersError ? <Alert>{containersError}</Alert> : null}
+        <div className="sd-stack">
+          <SearchSelect
+            label={t('inspector.agent')}
+            value={watchForm.agentId}
+            options={agentOptions}
+            onChange={(v) => setWatchForm((s) => ({ ...s, agentId: v, containerName: '', image: '' }))}
+            emptyLabel={t('inspector.selectAgent')}
+            placeholder={t('inspector.searchAgent')}
+          />
+          <SearchSelect
+            label={t('inspector.container')}
+            value={watchForm.containerName}
+            options={containerOptions}
+            onChange={selectContainer}
+            emptyLabel={watchForm.agentId ? t('inspector.selectContainer') : t('inspector.pickAgentFirst')}
+            placeholder={t('inspector.searchContainer')}
+            disabled={!watchForm.agentId}
+            loading={loadingContainers}
+          />
+          <Field label={t('policies.image')}>
+            <Input
+              value={watchForm.image}
+              onChange={(e) => setWatchForm((s) => ({ ...s, image: e.target.value }))}
+              placeholder="registry/app:tag"
+            />
+            <span style={{ color: 'var(--sd-muted)', fontSize: 12 }}>{t('policies.imageHint')}</span>
+          </Field>
+          <SearchSelect
+            label={t('inspector.secret')}
+            value={watchForm.secretId}
+            options={secretOptions}
+            onChange={(v) => setWatchForm((s) => ({ ...s, secretId: v }))}
+            emptyLabel={t('common.none')}
+            placeholder={t('inspector.searchSecret')}
+          />
+        </div>
+      </Modal>
+
+      <Modal
+        open={policyOpen}
+        title={editingId ? t('policies.savePolicy') : t('policies.addPolicy')}
+        onClose={() => { setPolicyOpen(false); setEditingId(null); }}
+        wide
+        footer={(
+          <>
+            <Button variant="ghost" onClick={() => { setPolicyOpen(false); setEditingId(null); }}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              disabled={!policyForm.watchId || !policyForm.flowId || saving}
+              onClick={() => { void savePolicy(); }}
+            >
+              {saving ? t('common.loading') : (editingId ? t('common.save') : t('common.create'))}
+            </Button>
+          </>
+        )}
+      >
+        {formError ? <Alert>{formError}</Alert> : null}
+        <div className="sd-stack">
+          <SearchSelect
+            label={t('policies.selectWatch')}
+            value={policyForm.watchId}
+            options={watchOptions}
+            onChange={(v) => setPolicyForm((s) => ({ ...s, watchId: v }))}
+            emptyLabel={t('policies.selectWatch')}
+            placeholder={t('common.search')}
+          />
+          <SearchSelect
+            label={t('policies.selectFlow')}
+            value={policyForm.flowId}
+            options={flowOptions}
+            onChange={(v) => setPolicyForm((s) => ({ ...s, flowId: v }))}
+            emptyLabel={t('policies.selectFlow')}
+            placeholder={t('common.search')}
+          />
+          <div className="sd-form-row">
+            <Field label={t('policies.modeNotify')}>
+              <Select
+                value={policyForm.mode}
+                onChange={(e) => setPolicyForm((s) => ({ ...s, mode: e.target.value as 'auto' | 'notify' }))}
+              >
+                <option value="notify">{t('policies.modeNotify')}</option>
+                <option value="auto">{t('policies.modeAuto')}</option>
+              </Select>
+            </Field>
+            <Field label={t('policies.cron')}>
+              <Input
+                value={policyForm.cron}
+                onChange={(e) => setPolicyForm((s) => ({ ...s, cron: e.target.value }))}
+                title={t('policies.cronHint')}
+              />
+            </Field>
+            <Field label={t('policies.timezone')}>
+              <Input
+                value={policyForm.timezone}
+                onChange={(e) => setPolicyForm((s) => ({ ...s, timezone: e.target.value }))}
+              />
+            </Field>
+          </div>
+          <div className="sd-form-row">
+            <Field label={t('policies.blackoutStart')}>
+              <Input
+                value={policyForm.blackoutStart}
+                onChange={(e) => setPolicyForm((s) => ({ ...s, blackoutStart: e.target.value }))}
+                placeholder="HH:mm"
+              />
+            </Field>
+            <Field label={t('policies.blackoutEnd')}>
+              <Input
+                value={policyForm.blackoutEnd}
+                onChange={(e) => setPolicyForm((s) => ({ ...s, blackoutEnd: e.target.value }))}
+                placeholder="HH:mm"
+              />
+            </Field>
+            <Field label={t('policies.policyNameOptional')}>
+              <Input
+                value={policyForm.name}
+                onChange={(e) => setPolicyForm((s) => ({ ...s, name: e.target.value }))}
+              />
+            </Field>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

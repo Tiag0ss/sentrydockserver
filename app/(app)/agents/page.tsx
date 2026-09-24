@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { tt } from '@/lib/i18n/translate';
-import { PageHeader, Button, Input, Select, Field, Alert, EmptyState, DataRow, Panel, Badge } from '@/components/ui';
+import {
+  PageHeader, Button, Input, Select, Field, Alert, EmptyState, DataRow, Panel, Badge, Modal,
+} from '@/components/ui';
 
 type Agent = {
   id: string;
@@ -26,11 +28,14 @@ type Agent = {
 export default function AgentsPage() {
   const { t } = useI18n();
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [transport, setTransport] = useState('ws');
   const [createdToken, setCreatedToken] = useState('');
   const [labelDraft, setLabelDraft] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
+  const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   async function load() {
     const rows = await api<Agent[]>('/agents');
@@ -44,15 +49,26 @@ export default function AgentsPage() {
 
   useEffect(() => { void load().catch((e) => setError(e instanceof Error ? e.message : t('common.error'))); }, [t]);
 
+  function openCreate() {
+    setName('');
+    setTransport('ws');
+    setFormError('');
+    setCreatedToken('');
+    setOpen(true);
+  }
+
   async function create() {
-    setError('');
+    setFormError('');
+    setSaving(true);
     try {
       const res = await api<Agent>('/agents', { method: 'POST', body: JSON.stringify({ name, transport }) });
       setCreatedToken(res.token || '');
       setName('');
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('common.error'));
+      setFormError(e instanceof Error ? e.message : t('common.error'));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -64,28 +80,14 @@ export default function AgentsPage() {
 
   return (
     <div className="sd-page">
-      <PageHeader title={t('agents.title')} />
+      <PageHeader
+        title={t('agents.title')}
+        actions={<Button onClick={openCreate}>{t('agents.create')}</Button>}
+      />
       {error ? <Alert>{error}</Alert> : null}
-      {createdToken ? (
+      {createdToken && !open ? (
         <Alert tone="warn">{t('agents.tokenOnce')}: <code>{createdToken}</code></Alert>
       ) : null}
-
-      <Panel>
-        <div className="sd-form-row">
-          <Field label={t('agents.name')}>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('agents.name')} />
-          </Field>
-          <Field label="Transport">
-            <Select value={transport} onChange={(e) => setTransport(e.target.value)}>
-              <option value="ws">WebSocket</option>
-              <option value="grpc">gRPC</option>
-            </Select>
-          </Field>
-          <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-            <Button onClick={() => { void create(); }} disabled={!name.trim()}>{t('agents.create')}</Button>
-          </div>
-        </div>
-      </Panel>
 
       {agents.length === 0 ? <EmptyState>{t('dashboard.noAgents')}</EmptyState> : null}
       {agents.map((a) => (
@@ -138,6 +140,41 @@ export default function AgentsPage() {
           </DataRow>
         </Panel>
       ))}
+
+      <Modal
+        open={open}
+        title={t('agents.create')}
+        onClose={() => setOpen(false)}
+        footer={(
+          <>
+            <Button variant="ghost" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
+            {!createdToken ? (
+              <Button disabled={!name.trim() || saving} onClick={() => { void create(); }}>
+                {saving ? t('common.loading') : t('common.create')}
+              </Button>
+            ) : (
+              <Button onClick={() => setOpen(false)}>{t('common.close')}</Button>
+            )}
+          </>
+        )}
+      >
+        {formError ? <Alert>{formError}</Alert> : null}
+        {createdToken ? (
+          <Alert tone="warn">{t('agents.tokenOnce')}: <code style={{ wordBreak: 'break-all' }}>{createdToken}</code></Alert>
+        ) : (
+          <div className="sd-stack">
+            <Field label={t('agents.name')}>
+              <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+            </Field>
+            <Field label="Transport">
+              <Select value={transport} onChange={(e) => setTransport(e.target.value)}>
+                <option value="ws">WebSocket</option>
+                <option value="grpc">gRPC</option>
+              </Select>
+            </Field>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

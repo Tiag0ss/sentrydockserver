@@ -7,6 +7,8 @@ export const en = {
     delete: 'Delete',
     edit: 'Edit',
     back: 'Back',
+    cancel: 'Cancel',
+    close: 'Close',
     search: 'Search…',
     none: '— none —',
     logout: 'Log out',

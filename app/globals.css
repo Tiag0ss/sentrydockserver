@@ -57,16 +57,6 @@ html.dark body {
     var(--sd-bg);
 }
 
-body::before {
-  content: "";
-  pointer-events: none;
-  position: fixed;
-  inset: 0;
-  opacity: 0.035;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  z-index: 9999;
-}
-
 a { color: var(--sd-accent); text-decoration: none; }
 button, input, select, textarea { font: inherit; }
 
@@ -75,7 +65,8 @@ button, input, select, textarea { font: inherit; }
   display: flex;
   flex-direction: column;
   gap: 20px;
-  max-width: 1100px;
+  width: 100%;
+  min-width: 0;
 }
 
 .sd-page-header {
@@ -221,6 +212,8 @@ button, input, select, textarea { font: inherit; }
   border-radius: 12px;
   padding: 16px;
   box-shadow: var(--sd-shadow);
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .sd-row {
@@ -258,6 +251,78 @@ button, input, select, textarea { font: inherit; }
   text-align: center;
   color: var(--sd-muted);
   font-size: 0.9rem;
+}
+
+.sd-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(3px);
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 24px 16px;
+  overflow: auto;
+}
+.sd-modal {
+  width: 100%;
+  max-width: 520px;
+  margin: auto;
+  background: var(--sd-panel);
+  border: 1px solid var(--sd-border);
+  border-radius: 14px;
+  box-shadow: var(--sd-shadow), 0 24px 64px rgba(0, 0, 0, 0.22);
+  display: flex;
+  flex-direction: column;
+  max-height: min(90dvh, 720px);
+}
+.sd-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--sd-border);
+  flex-shrink: 0;
+}
+.sd-modal-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.sd-modal-body {
+  padding: 16px 18px;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+.sd-modal-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px 18px 16px;
+  border-top: 1px solid var(--sd-border);
+  flex-shrink: 0;
+}
+.sd-modal-close {
+  background: transparent;
+  border: 1px solid var(--sd-border);
+  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  cursor: pointer;
+  color: var(--sd-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.sd-modal-close:hover {
+  background: var(--sd-surface-2);
+  color: var(--sd-text);
 }
 
 .sd-badge {
@@ -367,6 +432,7 @@ button, input, select, textarea { font: inherit; }
   overflow: auto;
   flex: 1;
   min-height: 0;
+  width: 100%;
 }
 
 .sd-overlay {

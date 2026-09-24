@@ -1,6 +1,7 @@
 'use client';
 
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
+import { useEffect } from 'react';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { useTheme } from '@/lib/theme/ThemeProvider';
 import {
@@ -140,6 +141,67 @@ export function DataRow({
 
 export function Panel({ children, className = '' }: { children: ReactNode; className?: string }) {
   return <section className={`sd-panel ${className}`.trim()}>{children}</section>;
+}
+
+export function Modal({
+  open,
+  title,
+  onClose,
+  children,
+  footer,
+  wide,
+}: {
+  open: boolean;
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+  footer?: ReactNode;
+  wide?: boolean;
+}) {
+  const { t } = useI18n();
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      className="sd-modal-overlay"
+      role="presentation"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="sd-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        style={wide ? { maxWidth: 640 } : undefined}
+      >
+        <div className="sd-modal-header">
+          <h2>{title}</h2>
+          <button type="button" className="sd-modal-close" onClick={onClose} aria-label={t('common.close')}>
+            ✕
+          </button>
+        </div>
+        <div className="sd-modal-body">{children}</div>
+        {footer ? <div className="sd-modal-footer">{footer}</div> : null}
+      </div>
+    </div>
+  );
 }
 
 export function ThemeControls() {
