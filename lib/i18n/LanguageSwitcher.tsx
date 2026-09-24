@@ -17,21 +17,18 @@ export function LanguageSwitcher({ compact }: Props) {
       gap: compact ? 8 : 4,
       alignItems: compact ? 'center' : 'stretch',
       fontSize: 12,
-      color: 'var(--muted)',
+      color: 'var(--sd-muted)',
     }}>
-      {!compact && <span>{t('common.language')}</span>}
+      {!compact && <span className="sd-control-label" style={{ marginBottom: 0 }}>{t('common.language')}</span>}
       <select
         aria-label={t('common.language')}
         value={locale}
         onChange={(e) => setLocale(e.target.value as Locale)}
+        className="sd-select"
         style={{
-          background: 'var(--bg)',
-          border: '1px solid var(--border)',
-          borderRadius: 8,
-          padding: compact ? '6px 8px' : '8px 10px',
-          color: 'var(--text)',
           fontSize: 13,
-          cursor: 'pointer',
+          padding: compact ? '6px 8px' : '8px 10px',
+          minHeight: compact ? 32 : 36,
         }}
       >
         {LOCALES.map((code) => (

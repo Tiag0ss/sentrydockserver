@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { SearchSelect, type SearchOption } from '../flows/_components/SearchSelect';
+import {
+  PageHeader, Button, Input, Select, Field, Tabs, Alert, EmptyState, DataRow, Panel,
+} from '@/components/ui';
 
 type Watch = {
   id: string;
@@ -54,35 +57,6 @@ const emptyPolicyForm = {
   enabled: true,
 };
 
-const input: React.CSSProperties = {
-  background: 'var(--bg)',
-  border: '1px solid var(--border)',
-  borderRadius: 8,
-  padding: '8px 10px',
-  color: 'var(--text)',
-};
-const btn: React.CSSProperties = {
-  background: 'var(--accent)',
-  border: 'none',
-  borderRadius: 8,
-  padding: '8px 12px',
-  fontWeight: 600,
-  cursor: 'pointer',
-  color: 'var(--bg)',
-};
-const btnGhost: React.CSSProperties = {
-  ...btn,
-  background: 'transparent',
-  color: 'var(--text)',
-  border: '1px solid var(--border)',
-};
-const card: React.CSSProperties = {
-  background: 'var(--panel)',
-  border: '1px solid var(--border)',
-  borderRadius: 12,
-  padding: 16,
-};
-
 function containerNameOf(c: ContainerRow): string {
   return (c.name || c.names?.[0] || c.id).replace(/^\//, '');
 }
@@ -123,10 +97,7 @@ export default function PoliciesPage() {
     setAgents(a);
     setFlows(f);
     setSecrets(s);
-    setWatchForm((prev) => ({
-      ...prev,
-      agentId: prev.agentId || a[0]?.id || '',
-    }));
+    setWatchForm((prev) => ({ ...prev, agentId: prev.agentId || a[0]?.id || '' }));
     setPolicyForm((prev) => ({
       ...prev,
       watchId: prev.watchId || w[0]?.id || '',
@@ -211,11 +182,7 @@ export default function PoliciesPage() {
 
   function selectContainer(name: string) {
     const c = containers.find((x) => containerNameOf(x) === name);
-    setWatchForm((s) => ({
-      ...s,
-      containerName: name,
-      image: c?.image || s.image,
-    }));
+    setWatchForm((s) => ({ ...s, containerName: name, image: c?.image || s.image }));
   }
 
   function startEdit(p: Policy) {
@@ -288,16 +255,10 @@ export default function PoliciesPage() {
     };
     try {
       if (editingId) {
-        await api(`/policies/${editingId}`, {
-          method: 'PATCH',
-          body: JSON.stringify(body),
-        });
+        await api(`/policies/${editingId}`, { method: 'PATCH', body: JSON.stringify(body) });
         setMsg(t('policies.policyUpdated'));
       } else {
-        await api('/policies', {
-          method: 'POST',
-          body: JSON.stringify(body),
-        });
+        await api('/policies', { method: 'POST', body: JSON.stringify(body) });
         setMsg(t('policies.policyCreated'));
       }
       resetPolicyForm();
@@ -378,75 +339,33 @@ export default function PoliciesPage() {
     return w ? `${w.containerName} · ${w.image}` : id.slice(0, 8);
   };
 
-  const tabs: { id: TabId; label: string; count?: number }[] = [
-    { id: 'watches', label: t('policies.tabWatches'), count: watches.length },
-    { id: 'policies', label: t('policies.tabPolicies'), count: policies.length },
-    { id: 'io', label: t('policies.tabImportExport') },
-  ];
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <header>
-        <h1 style={{ margin: 0 }}>{t('policies.title')}</h1>
-        <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: 14 }}>{t('policies.subtitle')}</p>
-      </header>
+    <div className="sd-page">
+      <PageHeader title={t('policies.title')} subtitle={t('policies.subtitle')} />
 
-      <nav
-        role="tablist"
-        style={{
-          display: 'flex',
-          gap: 4,
-          borderBottom: '1px solid var(--border)',
-        }}
-      >
-        {tabs.map((item) => {
-          const active = tab === item.id;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => setTab(item.id)}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
-                marginBottom: -1,
-                padding: '10px 14px',
-                color: active ? 'var(--text)' : 'var(--muted)',
-                fontWeight: active ? 600 : 500,
-                cursor: 'pointer',
-                fontSize: 14,
-              }}
-            >
-              {item.label}
-              {item.count != null ? (
-                <span style={{ marginLeft: 8, color: 'var(--muted)', fontWeight: 500 }}>{item.count}</span>
-              ) : null}
-            </button>
-          );
-        })}
-      </nav>
+      <Tabs
+        value={tab}
+        onChange={(id) => setTab(id as TabId)}
+        items={[
+          { id: 'watches', label: t('policies.tabWatches'), count: watches.length },
+          { id: 'policies', label: t('policies.tabPolicies'), count: policies.length },
+          { id: 'io', label: t('policies.tabImportExport') },
+        ]}
+      />
 
-      {error && <p style={{ color: 'var(--danger)', margin: 0 }}>{error}</p>}
-      {msg && <p style={{ color: 'var(--ok)', margin: 0 }}>{msg}</p>}
+      {error ? <Alert>{error}</Alert> : null}
+      {msg ? <Alert tone="ok">{msg}</Alert> : null}
 
       {tab === 'watches' && (
-        <section style={card}>
+        <Panel>
           <h2 style={{ margin: '0 0 4px', fontSize: 16 }}>{t('policies.watches')}</h2>
-          <p style={{ margin: '0 0 12px', color: 'var(--muted)', fontSize: 13 }}>{t('policies.watchesHint')}</p>
-          <div style={{ display: 'grid', gap: 10, marginBottom: 16, maxWidth: 560 }}>
+          <p style={{ margin: '0 0 14px', color: 'var(--sd-muted)', fontSize: 13 }}>{t('policies.watchesHint')}</p>
+          <div className="sd-stack" style={{ maxWidth: 560, marginBottom: 16 }}>
             <SearchSelect
               label={t('inspector.agent')}
               value={watchForm.agentId}
               options={agentOptions}
-              onChange={(v) => setWatchForm((s) => ({
-                ...s,
-                agentId: v,
-                containerName: '',
-                image: '',
-              }))}
+              onChange={(v) => setWatchForm((s) => ({ ...s, agentId: v, containerName: '', image: '' }))}
               emptyLabel={t('inspector.selectAgent')}
               placeholder={t('inspector.searchAgent')}
             />
@@ -460,19 +379,15 @@ export default function PoliciesPage() {
               disabled={!watchForm.agentId}
               loading={loadingContainers}
             />
-            {containersError ? (
-              <p style={{ margin: 0, color: 'var(--danger)', fontSize: 13 }}>{containersError}</p>
-            ) : null}
-            <label style={{ display: 'grid', gap: 4, fontSize: 13 }}>
-              <span>{t('policies.image')}</span>
-              <input
-                style={input}
+            {containersError ? <Alert>{containersError}</Alert> : null}
+            <Field label={t('policies.image')}>
+              <Input
                 value={watchForm.image}
                 onChange={(e) => setWatchForm((s) => ({ ...s, image: e.target.value }))}
                 placeholder="registry/app:tag"
               />
-              <span style={{ color: 'var(--muted)', fontSize: 12 }}>{t('policies.imageHint')}</span>
-            </label>
+              <span style={{ color: 'var(--sd-muted)', fontSize: 12 }}>{t('policies.imageHint')}</span>
+            </Field>
             <SearchSelect
               label={t('inspector.secret')}
               value={watchForm.secretId}
@@ -481,69 +396,55 @@ export default function PoliciesPage() {
               emptyLabel={t('common.none')}
               placeholder={t('inspector.searchSecret')}
             />
-            <button
-              type="button"
-              style={{ ...btn, width: 'fit-content' }}
+            <Button
               disabled={!watchForm.containerName || !watchForm.image}
               onClick={() => { void createWatch(); }}
+              style={{ width: 'fit-content' }}
             >
               {t('policies.addWatch')}
-            </button>
+            </Button>
           </div>
-          {watches.length === 0 && <p style={{ color: 'var(--muted)', margin: 0 }}>{t('policies.noWatches')}</p>}
+          {watches.length === 0 ? <EmptyState>{t('policies.noWatches')}</EmptyState> : null}
           {watches.map((w) => (
-            <div
+            <DataRow
               key={w.id}
-              style={{
-                display: 'flex',
-                gap: 12,
-                alignItems: 'center',
-                padding: '8px 0',
-                borderBottom: '1px solid var(--border)',
-                flexWrap: 'wrap',
-              }}
-            >
-              <strong>{w.containerName}</strong>
-              <span style={{ color: 'var(--muted)', fontSize: 13 }}>{w.image}</span>
-              <span style={{ color: 'var(--muted)', fontSize: 13 }}>{agentName(w.agentId)}</span>
-              <button
-                type="button"
-                style={{ ...btnGhost, marginLeft: 'auto', color: 'var(--danger)', borderColor: 'var(--danger)' }}
-                onClick={async () => {
-                  if (!confirm(t('policies.deleteWatchConfirm'))) return;
-                  try {
-                    await api(`/watches/${w.id}`, { method: 'DELETE' });
-                    await load();
-                  } catch (e) {
-                    setError(e instanceof Error ? e.message : t('common.error'));
-                  }
-                }}
-              >
-                {t('common.delete')}
-              </button>
-            </div>
+              title={w.containerName}
+              meta={`${w.image} · ${agentName(w.agentId)}`}
+              actions={(
+                <Button
+                  variant="danger"
+                  onClick={async () => {
+                    if (!confirm(t('policies.deleteWatchConfirm'))) return;
+                    try {
+                      await api(`/watches/${w.id}`, { method: 'DELETE' });
+                      await load();
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : t('common.error'));
+                    }
+                  }}
+                >
+                  {t('common.delete')}
+                </Button>
+              )}
+            />
           ))}
-        </section>
+        </Panel>
       )}
 
       {tab === 'policies' && (
-        <section style={card}>
+        <Panel>
           <h2 style={{ margin: '0 0 4px', fontSize: 16 }}>{t('policies.policies')}</h2>
-          <p style={{ margin: '0 0 12px', color: 'var(--muted)', fontSize: 13 }}>{t('policies.policiesHint')}</p>
+          <p style={{ margin: '0 0 14px', color: 'var(--sd-muted)', fontSize: 13 }}>{t('policies.policiesHint')}</p>
 
           {watches.length === 0 ? (
-            <p style={{ color: 'var(--muted)', margin: '0 0 16px' }}>
+            <EmptyState>
               {t('policies.needWatchFirst')}{' '}
-              <button
-                type="button"
-                style={{ ...btnGhost, padding: '4px 8px', fontSize: 13 }}
-                onClick={() => setTab('watches')}
-              >
+              <Button variant="ghost" onClick={() => setTab('watches')} style={{ marginLeft: 8 }}>
                 {t('policies.tabWatches')}
-              </button>
-            </p>
+              </Button>
+            </EmptyState>
           ) : (
-            <div style={{ display: 'grid', gap: 10, marginBottom: 20, maxWidth: 640 }}>
+            <div className="sd-stack" style={{ maxWidth: 640, marginBottom: 20 }}>
               <SearchSelect
                 label={t('policies.selectWatch')}
                 value={policyForm.watchId}
@@ -560,138 +461,121 @@ export default function PoliciesPage() {
                 emptyLabel={t('policies.selectFlow')}
                 placeholder={t('common.search')}
               />
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <select
-                  style={input}
-                  value={policyForm.mode}
-                  onChange={(e) => setPolicyForm((s) => ({ ...s, mode: e.target.value as 'auto' | 'notify' }))}
-                >
-                  <option value="notify">{t('policies.modeNotify')}</option>
-                  <option value="auto">{t('policies.modeAuto')}</option>
-                </select>
-                <input
-                  style={{ ...input, minWidth: 140 }}
-                  placeholder={t('policies.cron')}
-                  value={policyForm.cron}
-                  onChange={(e) => setPolicyForm((s) => ({ ...s, cron: e.target.value }))}
-                  title={t('policies.cronHint')}
-                />
-                <input
-                  style={input}
-                  placeholder={t('policies.timezone')}
-                  value={policyForm.timezone}
-                  onChange={(e) => setPolicyForm((s) => ({ ...s, timezone: e.target.value }))}
-                />
+              <div className="sd-form-row">
+                <Field label={t('policies.modeNotify')}>
+                  <Select
+                    value={policyForm.mode}
+                    onChange={(e) => setPolicyForm((s) => ({ ...s, mode: e.target.value as 'auto' | 'notify' }))}
+                  >
+                    <option value="notify">{t('policies.modeNotify')}</option>
+                    <option value="auto">{t('policies.modeAuto')}</option>
+                  </Select>
+                </Field>
+                <Field label={t('policies.cron')}>
+                  <Input
+                    value={policyForm.cron}
+                    onChange={(e) => setPolicyForm((s) => ({ ...s, cron: e.target.value }))}
+                    title={t('policies.cronHint')}
+                  />
+                </Field>
+                <Field label={t('policies.timezone')}>
+                  <Input
+                    value={policyForm.timezone}
+                    onChange={(e) => setPolicyForm((s) => ({ ...s, timezone: e.target.value }))}
+                  />
+                </Field>
               </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <input
-                  style={{ ...input, width: 110 }}
-                  placeholder={t('policies.blackoutStart')}
-                  value={policyForm.blackoutStart}
-                  onChange={(e) => setPolicyForm((s) => ({ ...s, blackoutStart: e.target.value }))}
-                  title="HH:mm"
-                />
-                <input
-                  style={{ ...input, width: 110 }}
-                  placeholder={t('policies.blackoutEnd')}
-                  value={policyForm.blackoutEnd}
-                  onChange={(e) => setPolicyForm((s) => ({ ...s, blackoutEnd: e.target.value }))}
-                  title="HH:mm"
-                />
-                <input
-                  style={{ ...input, minWidth: 160, flex: 1 }}
-                  placeholder={t('policies.policyNameOptional')}
-                  value={policyForm.name}
-                  onChange={(e) => setPolicyForm((s) => ({ ...s, name: e.target.value }))}
-                />
+              <div className="sd-form-row">
+                <Field label={t('policies.blackoutStart')}>
+                  <Input
+                    value={policyForm.blackoutStart}
+                    onChange={(e) => setPolicyForm((s) => ({ ...s, blackoutStart: e.target.value }))}
+                    placeholder="HH:mm"
+                  />
+                </Field>
+                <Field label={t('policies.blackoutEnd')}>
+                  <Input
+                    value={policyForm.blackoutEnd}
+                    onChange={(e) => setPolicyForm((s) => ({ ...s, blackoutEnd: e.target.value }))}
+                    placeholder="HH:mm"
+                  />
+                </Field>
+                <Field label={t('policies.policyNameOptional')}>
+                  <Input
+                    value={policyForm.name}
+                    onChange={(e) => setPolicyForm((s) => ({ ...s, name: e.target.value }))}
+                  />
+                </Field>
               </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button type="button" style={btn} onClick={() => { void savePolicy(); }}>
+              <div className="sd-actions">
+                <Button onClick={() => { void savePolicy(); }}>
                   {editingId ? t('policies.savePolicy') : t('policies.addPolicy')}
-                </button>
+                </Button>
                 {editingId ? (
-                  <button type="button" style={btnGhost} onClick={resetPolicyForm}>
-                    {t('policies.cancelEdit')}
-                  </button>
+                  <Button variant="ghost" onClick={resetPolicyForm}>{t('policies.cancelEdit')}</Button>
                 ) : null}
               </div>
             </div>
           )}
 
-          {policies.length === 0 && watches.length > 0 && (
-            <p style={{ color: 'var(--muted)', margin: 0 }}>{t('policies.noPolicies')}</p>
-          )}
+          {policies.length === 0 && watches.length > 0 ? (
+            <EmptyState>{t('policies.noPolicies')}</EmptyState>
+          ) : null}
           {policies.map((p) => (
-            <div
+            <DataRow
               key={p.id}
-              style={{
-                display: 'flex',
-                gap: 12,
-                alignItems: 'center',
-                padding: '10px 0',
-                borderBottom: '1px solid var(--border)',
-                flexWrap: 'wrap',
-                background: editingId === p.id ? 'color-mix(in srgb, var(--accent) 8%, transparent)' : undefined,
-                margin: '0 -8px',
-                paddingLeft: 8,
-                paddingRight: 8,
-                borderRadius: 8,
-              }}
-            >
-              <div style={{ flex: 1, minWidth: 200 }}>
-                <strong>{p.name}</strong>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+              title={p.name}
+              meta={(
+                <>
                   {watchLabel(p.watchId)} · {flowName(p.flowId)} · {p.cron} ({p.timezone}) · {p.mode}
                   {p.blackoutStart && p.blackoutEnd ? ` · ${p.blackoutStart}–${p.blackoutEnd}` : ''}
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  <br />
                   {t('policies.nextRun')}: {p.nextRunAt ? formatDate(p.nextRunAt) : '—'}
                   {p.lastRunAt ? ` · ${t('policies.lastRun')}: ${formatDate(p.lastRunAt)}` : ''}
-                </div>
-              </div>
-              <button type="button" style={btnGhost} onClick={() => startEdit(p)}>
-                {t('common.edit')}
-              </button>
-              <button type="button" style={btnGhost} onClick={() => { void togglePolicy(p); }}>
-                {p.enabled ? t('policies.disable') : t('policies.enable')}
-              </button>
-              <button type="button" style={btnGhost} onClick={() => { void runCheck(p.id); }}>
-                {t('policies.checkNow')}
-              </button>
-              <button
-                type="button"
-                style={{ ...btnGhost, color: 'var(--danger)', borderColor: 'var(--danger)' }}
-                onClick={async () => {
-                  if (!confirm(t('policies.deletePolicyConfirm', { name: p.name }))) return;
-                  try {
-                    await api(`/policies/${p.id}`, { method: 'DELETE' });
-                    if (editingId === p.id) resetPolicyForm();
-                    await load();
-                  } catch (e) {
-                    setError(e instanceof Error ? e.message : t('common.error'));
-                  }
-                }}
-              >
-                {t('common.delete')}
-              </button>
-            </div>
+                </>
+              )}
+              actions={(
+                <>
+                  <Button variant="ghost" onClick={() => startEdit(p)}>{t('common.edit')}</Button>
+                  <Button variant="ghost" onClick={() => { void togglePolicy(p); }}>
+                    {p.enabled ? t('policies.disable') : t('policies.enable')}
+                  </Button>
+                  <Button variant="ghost" onClick={() => { void runCheck(p.id); }}>
+                    {t('policies.checkNow')}
+                  </Button>
+                  <Button
+                    variant="danger"
+                    onClick={async () => {
+                      if (!confirm(t('policies.deletePolicyConfirm', { name: p.name }))) return;
+                      try {
+                        await api(`/policies/${p.id}`, { method: 'DELETE' });
+                        if (editingId === p.id) resetPolicyForm();
+                        await load();
+                      } catch (e) {
+                        setError(e instanceof Error ? e.message : t('common.error'));
+                      }
+                    }}
+                  >
+                    {t('common.delete')}
+                  </Button>
+                </>
+              )}
+            />
           ))}
-        </section>
+        </Panel>
       )}
 
       {tab === 'io' && (
-        <section style={card}>
+        <Panel>
           <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>{t('policies.tabImportExport')}</h2>
-          <div style={{ display: 'grid', gap: 16, maxWidth: 480 }}>
+          <div className="sd-stack" style={{ maxWidth: 480 }}>
             <div>
-              <p style={{ margin: '0 0 8px', color: 'var(--muted)', fontSize: 13 }}>{t('policies.exportHint')}</p>
-              <button type="button" style={btnGhost} onClick={() => { void exportBundle(); }}>
-                {t('policies.export')}
-              </button>
+              <p style={{ margin: '0 0 8px', color: 'var(--sd-muted)', fontSize: 13 }}>{t('policies.exportHint')}</p>
+              <Button variant="ghost" onClick={() => { void exportBundle(); }}>{t('policies.export')}</Button>
             </div>
             <div>
-              <p style={{ margin: '0 0 8px', color: 'var(--muted)', fontSize: 13 }}>{t('policies.importHint')}</p>
-              <label style={{ ...btnGhost, display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
+              <p style={{ margin: '0 0 8px', color: 'var(--sd-muted)', fontSize: 13 }}>{t('policies.importHint')}</p>
+              <label className="sd-btn-ghost" style={{ display: 'inline-flex', cursor: 'pointer' }}>
                 {t('policies.import')}
                 <input
                   type="file"
@@ -706,7 +590,7 @@ export default function PoliciesPage() {
               </label>
             </div>
           </div>
-        </section>
+        </Panel>
       )}
     </div>
   );

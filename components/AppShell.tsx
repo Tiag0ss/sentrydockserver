@@ -5,9 +5,10 @@ import { usePathname, useRouter } from 'next/navigation';
 import { api, clearToken, getToken } from '@/lib/api';
 import { useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n/I18nProvider';
-import { LanguageSwitcher } from '@/lib/i18n/LanguageSwitcher';
 import { NotificationBell } from '@/components/NotificationBell';
 import { HeaderStats } from '@/components/HeaderStats';
+import { UserMenu } from '@/components/UserMenu';
+import { InstallAppPrompt } from '@/components/InstallAppPrompt';
 
 const NAV_KEYS = [
   { href: '/', key: 'nav.dashboard' },
@@ -28,6 +29,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { t } = useI18n();
   const [ready, setReady] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
+
+  useEffect(() => {
+    setNavOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setNavOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [navOpen]);
 
   useEffect(() => {
     if (!getToken() && pathname !== '/login') {
@@ -57,85 +72,62 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (!ready) return <div style={{ padding: 40 }}>{t('common.loading')}</div>;
 
   return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: '220px 1fr',
-      position: 'fixed',
-      inset: 0,
-      overflow: 'hidden',
-    }}>
-      <aside style={{
-        borderRight: '1px solid var(--border)',
-        background: 'rgba(20,28,46,0.9)',
-        padding: '24px 16px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-        height: '100%',
-        overflow: 'hidden',
-      }}>
-        <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontWeight: 700, fontSize: 18, marginBottom: 16, letterSpacing: 0.5, flexShrink: 0 }}>
-          Sentry<span style={{ color: 'var(--accent)' }}>Dock</span>
+    <div className="sd-shell" data-nav-open={navOpen}>
+      <div
+        className="sd-overlay"
+        role="presentation"
+        onClick={() => setNavOpen(false)}
+      />
+      <aside className="sd-sidebar">
+        <div className="sd-brand">
+          Sentry<span>Dock</span>
         </div>
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        <nav className="sd-nav">
           {NAV_KEYS.map((n) => {
             const active = pathname === n.href || (n.href !== '/' && pathname.startsWith(n.href));
             return (
               <Link
                 key={n.href}
                 href={n.href}
-                style={{
-                  padding: '10px 12px',
-                  borderRadius: 8,
-                  color: active ? 'var(--bg)' : 'var(--text)',
-                  background: active ? 'var(--accent)' : 'transparent',
-                  fontWeight: active ? 600 : 400,
-                  flexShrink: 0,
-                }}
+                className="sd-nav-link"
+                data-active={active}
+                onClick={() => setNavOpen(false)}
               >
                 {t(n.key)}
               </Link>
             );
           })}
         </nav>
-        <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10, flexShrink: 0, paddingTop: 12 }}>
-          <LanguageSwitcher />
-          <button
-            type="button"
-            onClick={() => { clearToken(); router.push('/login'); }}
-            style={{
-              background: 'transparent',
-              border: '1px solid var(--border)',
-              color: 'var(--muted)',
-              padding: '8px 12px',
-              borderRadius: 8,
-              cursor: 'pointer',
-            }}
-          >
-            {t('common.logout')}
-          </button>
-        </div>
       </aside>
 
-      <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%', overflow: 'hidden' }}>
-        <header style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 16,
-          padding: '10px 28px',
-          borderBottom: '1px solid var(--border)',
-          background: 'rgba(12, 18, 34, 0.65)',
-          backdropFilter: 'blur(8px)',
-          flexShrink: 0,
-          zIndex: 40,
-        }}>
-          <HeaderStats />
-          <div style={{ flexShrink: 0 }}>
+      <div className="sd-main-col">
+        <header className="sd-topbar">
+          <button
+            type="button"
+            className="sd-menu-btn"
+            aria-label={navOpen ? t('common.closeMenu') : t('common.menu')}
+            onClick={() => setNavOpen((v) => !v)}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              {navOpen ? (
+                <path d="M18 6L6 18M6 6l12 12" />
+              ) : (
+                <path d="M4 7h16M4 12h16M4 17h16" />
+              )}
+            </svg>
+          </button>
+          <div style={{ flex: 1, minWidth: 0, overflowX: 'auto' }}>
+            <HeaderStats />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
             <NotificationBell />
+            <UserMenu />
           </div>
         </header>
-        <main style={{ padding: 28, overflow: 'auto', flex: 1, minHeight: 0 }}>{children}</main>
+        <main className="sd-content">
+          <InstallAppPrompt />
+          {children}
+        </main>
       </div>
     </div>
   );

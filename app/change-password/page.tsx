@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, setToken, getToken, clearToken } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+import { Field, Input, Button, Alert } from '@/components/ui';
 
 export default function ChangePasswordPage() {
   const { t } = useI18n();
@@ -54,69 +55,31 @@ export default function ChangePasswordPage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24 }}>
-      <form onSubmit={onSubmit} style={{
-        width: '100%',
-        maxWidth: 420,
-        background: 'var(--panel)',
-        border: '1px solid var(--border)',
-        borderRadius: 16,
-        padding: 28,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 14,
-      }}>
-        <h1 style={{ margin: 0, fontSize: 22 }}>{t('users.changePasswordTitle')}</h1>
-        {forced && (
-          <p style={{ margin: 0, color: 'var(--warn)', fontSize: 14 }}>
-            {t('users.mustChangeHint')}
-          </p>
-        )}
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
-          {t('users.currentPassword')}
-          <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} style={input} required />
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
-          {t('users.newPassword')}
-          <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} style={input} required minLength={6} />
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
-          {t('users.confirmPassword')}
-          <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} style={input} required minLength={6} />
-        </label>
-        {error && <div style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</div>}
-        <button type="submit" disabled={loading} style={btn}>
+    <div className="sd-login">
+      <form onSubmit={onSubmit} className="sd-login-form">
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 650 }}>{t('users.changePasswordTitle')}</h1>
+        {forced ? (
+          <Alert tone="warn">{t('users.mustChangeHint')}</Alert>
+        ) : null}
+        <Field label={t('users.currentPassword')}>
+          <Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required />
+        </Field>
+        <Field label={t('users.newPassword')}>
+          <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={6} />
+        </Field>
+        <Field label={t('users.confirmPassword')}>
+          <Input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required minLength={6} />
+        </Field>
+        {error ? <Alert>{error}</Alert> : null}
+        <button type="submit" className="sd-btn" disabled={loading} style={{ width: '100%' }}>
           {loading ? t('common.loading') : t('users.savePassword')}
         </button>
-        {!forced && (
-          <button type="button" onClick={() => router.back()} style={btnGhost}>
+        {!forced ? (
+          <Button variant="ghost" onClick={() => router.back()} style={{ width: '100%' }}>
             {t('common.back')}
-          </button>
-        )}
+          </Button>
+        ) : null}
       </form>
     </div>
   );
 }
-
-const input: React.CSSProperties = {
-  background: 'var(--bg)',
-  border: '1px solid var(--border)',
-  borderRadius: 8,
-  padding: '10px 12px',
-  color: 'var(--text)',
-};
-const btn: React.CSSProperties = {
-  background: 'var(--accent)',
-  color: 'var(--bg)',
-  border: 'none',
-  borderRadius: 8,
-  padding: '12px 14px',
-  fontWeight: 600,
-  cursor: 'pointer',
-};
-const btnGhost: React.CSSProperties = {
-  ...btn,
-  background: 'transparent',
-  color: 'var(--muted)',
-  border: '1px solid var(--border)',
-};

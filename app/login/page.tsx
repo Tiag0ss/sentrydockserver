@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { api, setToken } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { LanguageSwitcher } from '@/lib/i18n/LanguageSwitcher';
+import { Field, Input, Button, Alert } from '@/components/ui';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -33,57 +34,27 @@ export default function LoginPage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24 }}>
-      <form onSubmit={onSubmit} style={{
-        width: '100%',
-        maxWidth: 380,
-        background: 'var(--panel)',
-        border: '1px solid var(--border)',
-        borderRadius: 16,
-        padding: 28,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 14,
-      }}>
+    <div className="sd-login">
+      <form onSubmit={onSubmit} className="sd-login-form">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-          <h1 style={{ margin: 0, fontFamily: 'IBM Plex Mono, monospace' }}>
-            Sentry<span style={{ color: 'var(--accent)' }}>Dock</span>
+          <h1 className="sd-login-brand">
+            Sentry<span>Dock</span>
           </h1>
           <LanguageSwitcher compact />
         </div>
-        <p style={{ margin: 0, color: 'var(--muted)', fontSize: 14 }}>{t('login.subtitle')}</p>
-        <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12 }}>{t('login.defaultHint')}</p>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
-          {t('login.username')}
-          <input value={username} onChange={(e) => setUsername(e.target.value)} style={inputStyle} autoComplete="username" />
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
-          {t('login.password')}
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} style={inputStyle} autoComplete="current-password" />
-        </label>
-        {error && <div style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</div>}
-        <button type="submit" disabled={loading} style={btnStyle}>
+        <p style={{ margin: 0, color: 'var(--sd-muted)', fontSize: 14 }}>{t('login.subtitle')}</p>
+        <p style={{ margin: 0, color: 'var(--sd-muted)', fontSize: 12 }}>{t('login.defaultHint')}</p>
+        <Field label={t('login.username')}>
+          <Input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
+        </Field>
+        <Field label={t('login.password')}>
+          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+        </Field>
+        {error ? <Alert>{error}</Alert> : null}
+        <button type="submit" className="sd-btn" disabled={loading} style={{ width: '100%' }}>
           {loading ? t('login.submitting') : t('login.submit')}
         </button>
       </form>
     </div>
   );
 }
-
-const inputStyle: React.CSSProperties = {
-  background: 'var(--bg)',
-  border: '1px solid var(--border)',
-  borderRadius: 8,
-  padding: '10px 12px',
-  color: 'var(--text)',
-};
-
-const btnStyle: React.CSSProperties = {
-  background: 'var(--accent)',
-  color: 'var(--bg)',
-  border: 'none',
-  borderRadius: 8,
-  padding: '12px 14px',
-  fontWeight: 600,
-  cursor: 'pointer',
-};

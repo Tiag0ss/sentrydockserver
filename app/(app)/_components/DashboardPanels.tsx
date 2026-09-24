@@ -92,13 +92,24 @@ export function Section({
   title,
   children,
   action,
+  wide,
 }: {
   title: string;
   children: React.ReactNode;
   action?: React.ReactNode;
+  wide?: boolean;
 }) {
   return (
-    <section style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
+    <section
+      style={{
+        background: 'var(--sd-panel)',
+        border: '1px solid var(--sd-border)',
+        borderRadius: 12,
+        padding: 16,
+        boxShadow: 'var(--sd-shadow)',
+        gridColumn: wide ? '1 / -1' : undefined,
+      }}
+    >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12 }}>
         <h2 style={{ margin: 0, fontSize: 16 }}>{title}</h2>
         {action}
@@ -220,12 +231,12 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
   }
 
   return (
-    <>
-      {error && <p style={{ color: 'var(--danger)', margin: 0 }}>{error}</p>}
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: 16 }}>
+      {error && <p style={{ color: 'var(--sd-danger)', margin: 0, gridColumn: '1 / -1' }}>{error}</p>}
 
       <Section
         title={t('dashboard.attention')}
-        action={<Link href="/runs" style={{ fontSize: 13, color: 'var(--muted)' }}>{t('dashboard.viewRuns')}</Link>}
+        action={<Link href="/runs" style={{ fontSize: 13, color: 'var(--sd-muted)' }}>{t('dashboard.viewRuns')}</Link>}
       >
         {data.attention.length === 0 && data.pendingUpdates.length === 0 && <Empty>{t('dashboard.allOk')}</Empty>}
         {data.pendingUpdates.map((u) => (
@@ -331,10 +342,11 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
       </Section>
 
       <Section
+        wide
         title={t('dashboard.recentHistory')}
         action={(
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--muted)' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--sd-muted)' }}>
               {t('dashboard.historyPageSize')}
               <select
                 value={pageSize}
@@ -342,14 +354,8 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
                   setPageSize(Number(e.target.value));
                   setPage(0);
                 }}
-                style={{
-                  background: 'var(--bg)',
-                  color: 'inherit',
-                  border: '1px solid var(--border)',
-                  borderRadius: 6,
-                  padding: '4px 8px',
-                  fontSize: 13,
-                }}
+                className="sd-select"
+                style={{ width: 'auto', minHeight: 32, padding: '4px 8px', fontSize: 13 }}
               >
                 {HISTORY_PAGE_SIZES.map((n) => (
                   <option key={n} value={n}>{n}</option>
@@ -432,6 +438,6 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
           </div>
         )}
       </Section>
-    </>
+    </div>
   );
 }

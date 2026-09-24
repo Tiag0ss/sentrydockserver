@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+import { PageHeader, Input, Alert, Panel } from '@/components/ui';
 
 export default function SettingsPage() {
   const { t } = useI18n();
@@ -20,29 +21,26 @@ export default function SettingsPage() {
   }, [t]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      <h1 style={{ margin: 0 }}>{t('settings.title')}</h1>
-      {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
-      <section>
-        <h2>{t('settings.settingsSection')}</h2>
-        {rows.map((r) => (
-          <div key={r.key} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <code style={{ minWidth: 200 }}>{r.key}</code>
-            <input
-              defaultValue={r.value}
-              style={input}
-              onBlur={async (e) => {
-                await api(`/settings/${r.key}`, { method: 'PUT', body: JSON.stringify({ value: e.target.value }) });
-              }}
-            />
-          </div>
-        ))}
-        <p style={{ color: 'var(--muted)', fontSize: 13 }}>
-          {t('settings.tlsHint')}
-        </p>
-      </section>
+    <div className="sd-page">
+      <PageHeader title={t('settings.title')} />
+      {error ? <Alert>{error}</Alert> : null}
+      <Panel>
+        <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>{t('settings.settingsSection')}</h2>
+        <div className="sd-stack">
+          {rows.map((r) => (
+            <div key={r.key} className="sd-form-row" style={{ alignItems: 'center' }}>
+              <code style={{ minWidth: 180, fontSize: 12 }}>{r.key}</code>
+              <Input
+                defaultValue={r.value}
+                onBlur={async (e) => {
+                  await api(`/settings/${r.key}`, { method: 'PUT', body: JSON.stringify({ value: e.target.value }) });
+                }}
+              />
+            </div>
+          ))}
+        </div>
+        <p style={{ color: 'var(--sd-muted)', fontSize: 13, margin: '12px 0 0' }}>{t('settings.tlsHint')}</p>
+      </Panel>
     </div>
   );
 }
-
-const input: React.CSSProperties = { background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', color: 'var(--text)' };

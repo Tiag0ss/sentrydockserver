@@ -25,6 +25,7 @@ import { FlowContextMenu, type ContextMenuState, type ContextTarget } from './Fl
 import { NODE_TYPES_LIST, getNodeOutputs, normalizeHandle, btnStyle, btnSecondaryStyle, inputStyle } from './flowConstants';
 import type { FlowSummary } from './FlowsList';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 const defaultEdgeOptions = {
   type: 'smoothstep' as const,
@@ -113,6 +114,8 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [msg, setMsg] = useState('');
   const [menu, setMenu] = useState<ContextMenuState>(null);
+  const [mobilePanel, setMobilePanel] = useState<'palette' | 'inspector' | null>(null);
+  const isMobile = useIsMobile();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition, fitView } = useReactFlow();
 
@@ -329,14 +332,53 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
     setMsg(t('flows.imported'));
   }
 
+  const palette = (
+    <div style={{ overflow: 'auto', border: '1px solid var(--sd-border)', borderRadius: 10, padding: 8, background: 'var(--sd-panel)', height: '100%' }}>
+      <div style={{ fontSize: 12, color: 'var(--sd-muted)', marginBottom: 8 }}>{t('flows.addCard')}</div>
+      {NODE_TYPES_LIST.map((n) => (
+        <button
+          key={n.type}
+          type="button"
+          onClick={() => {
+            addNode(n.type);
+            if (isMobile) setMobilePanel(null);
+          }}
+          style={{
+            display: 'block', width: '100%', textAlign: 'left', background: 'transparent', color: 'var(--sd-text)',
+            border: '1px solid var(--sd-border)', padding: 8, borderRadius: 6, cursor: 'pointer', marginBottom: 4, fontSize: 12,
+            minHeight: 40,
+          }}
+        >
+          {nodeLabel(n.type)}
+        </button>
+      ))}
+    </div>
+  );
+
+  const inspector = (
+    <div style={{ border: '1px solid var(--sd-border)', borderRadius: 10, padding: 12, background: 'var(--sd-panel)', height: '100%', overflow: 'auto' }}>
+      <div style={{ fontWeight: 600, marginBottom: 8 }}>{t('flows.properties')}</div>
+      <NodeInspector selectedNode={selectedNode} onPatch={patchNode} />
+      {selectedNode && (
+        <button
+          type="button"
+          onClick={() => handleContextAction('delete-node', { kind: 'node', id: selectedNode.id })}
+          style={{ ...btnSecondaryStyle, marginTop: 12, color: 'var(--sd-danger)', borderColor: 'var(--sd-danger)', width: '100%' }}
+        >
+          {t('flows.removeNode')}
+        </button>
+      )}
+    </div>
+  );
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: 'calc(100vh - 80px)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: 'calc(100dvh - 120px)', minHeight: 420 }}>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <button type="button" onClick={onBack} style={btnSecondaryStyle}>{t('flows.back')}</button>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          style={{ ...inputStyle, width: 220, marginTop: 0 }}
+          style={{ ...inputStyle, width: isMobile ? '100%' : 220, marginTop: 0, flex: isMobile ? '1 1 100%' : undefined }}
         />
         <button type="button" onClick={() => void save()} style={btnStyle}>{t('common.save')}</button>
         <button type="button" onClick={() => void run(false)} style={btnStyle}>{t('flows.run')}</button>
@@ -349,21 +391,37 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
             if (f) void importFlow(f);
           }} />
         </label>
-        {msg && <span style={{ color: 'var(--muted)', fontSize: 13 }}>{msg}</span>}
+        {isMobile ? (
+          <>
+            <button type="button" style={btnSecondaryStyle} onClick={() => setMobilePanel('palette')}>{t('flows.addCard')}</button>
+            <button type="button" style={btnSecondaryStyle} onClick={() => setMobilePanel('inspector')}>{t('flows.properties')}</button>
+          </>
+        ) : null}
+        {msg && <span style={{ color: 'var(--sd-muted)', fontSize: 13 }}>{msg}</span>}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr 220px', gap: 12, flex: 1, minHeight: 0 }}>
-        <div style={{ overflow: 'auto', border: '1px solid var(--border)', borderRadius: 10, padding: 8 }}>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>{t('flows.addCard')}</div>
-          {NODE_TYPES_LIST.map((n) => (
-            <button key={n.type} type="button" onClick={() => addNode(n.type)} style={{
-              display: 'block', width: '100%', textAlign: 'left', background: 'transparent', color: 'var(--text)',
-              border: '1px solid var(--border)', padding: 6, borderRadius: 6, cursor: 'pointer', marginBottom: 4, fontSize: 12,
-            }}>{nodeLabel(n.type)}</button>
-          ))}
-        </div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: isMobile ? '1fr' : '180px 1fr 220px',
+          gap: 12,
+          flex: 1,
+          minHeight: 0,
+        }}
+      >
+        {!isMobile ? palette : null}
 
-        <div ref={wrapperRef} style={{ position: 'relative', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', background: '#0a1020' }}>
+        <div
+          ref={wrapperRef}
+          style={{
+            position: 'relative',
+            border: '1px solid var(--sd-border)',
+            borderRadius: 10,
+            overflow: 'hidden',
+            background: 'var(--sd-canvas)',
+            minHeight: isMobile ? 360 : undefined,
+          }}
+        >
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -379,7 +437,10 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
             onConnect={onConnect}
             isValidConnection={isValidConnection}
             nodeTypes={types}
-            onNodeClick={(_, n) => setSelectedNode(n)}
+            onNodeClick={(_, n) => {
+              setSelectedNode(n);
+              if (isMobile) setMobilePanel('inspector');
+            }}
             onNodeContextMenu={onNodeContextMenu}
             onEdgeContextMenu={onEdgeContextMenu}
             onPaneContextMenu={onPaneContextMenu}
@@ -389,7 +450,7 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
           >
             <Background />
             <Controls />
-            <MiniMap />
+            {!isMobile ? <MiniMap /> : null}
           </ReactFlow>
           <FlowContextMenu
             menu={menu}
@@ -398,20 +459,40 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
           />
         </div>
 
-        <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
-          <div style={{ fontWeight: 600, marginBottom: 8 }}>{t('flows.properties')}</div>
-          <NodeInspector selectedNode={selectedNode} onPatch={patchNode} />
-          {selectedNode && (
-            <button
-              type="button"
-              onClick={() => handleContextAction('delete-node', { kind: 'node', id: selectedNode.id })}
-              style={{ ...btnSecondaryStyle, marginTop: 12, color: 'var(--danger)', borderColor: 'var(--danger)', width: '100%' }}
-            >
-              {t('flows.removeNode')}
-            </button>
-          )}
-        </div>
+        {!isMobile ? inspector : null}
       </div>
+
+      {isMobile && mobilePanel ? (
+        <>
+          <div
+            role="presentation"
+            onClick={() => setMobilePanel(null)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 60 }}
+          />
+          <div
+            style={{
+              position: 'fixed',
+              left: 0,
+              right: 0,
+              bottom: 0,
+              maxHeight: '70dvh',
+              zIndex: 70,
+              padding: 12,
+              background: 'var(--sd-bg)',
+              borderTop: '1px solid var(--sd-border)',
+              borderRadius: '16px 16px 0 0',
+              boxShadow: '0 -8px 32px rgba(0,0,0,0.25)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+              <button type="button" style={btnSecondaryStyle} onClick={() => setMobilePanel(null)}>✕</button>
+            </div>
+            <div style={{ maxHeight: 'calc(70dvh - 56px)', overflow: 'auto' }}>
+              {mobilePanel === 'palette' ? palette : inspector}
+            </div>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }

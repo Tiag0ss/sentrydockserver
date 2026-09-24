@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { tt } from '@/lib/i18n/translate';
+import { PageHeader, Button, Input, Select, Field, Panel, DataRow, EmptyState } from '@/components/ui';
 
 export default function SecretsPage() {
   const { t } = useI18n();
@@ -27,37 +28,45 @@ export default function SecretsPage() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <h1 style={{ margin: 0 }}>{t('secrets.title')}</h1>
-      <p style={{ color: 'var(--muted)', margin: 0 }}>{t('secrets.neverReexposed')}</p>
-      <div style={{ display: 'grid', gap: 8, maxWidth: 420 }}>
-        <input placeholder={t('secrets.name')} value={name} onChange={(e) => setName(e.target.value)} style={input} />
-        <select value={type} onChange={(e) => setType(e.target.value)} style={input}>
-          <option value="registry_credentials">{t('secretTypes.registry_credentials')}</option>
-          <option value="generic_token">{t('secretTypes.generic_token')}</option>
-          <option value="header_secret">{t('secretTypes.header_secret')}</option>
-        </select>
-        {type === 'registry_credentials' ? (
-          <>
-            <input placeholder={t('secrets.username')} value={username} onChange={(e) => setUsername(e.target.value)} style={input} />
-            <input placeholder={t('secrets.passwordToken')} type="password" value={password} onChange={(e) => setPassword(e.target.value)} style={input} />
-            <input placeholder={t('secrets.serverOptional')} value={serveraddress} onChange={(e) => setServeraddress(e.target.value)} style={input} />
-          </>
-        ) : (
-          <input placeholder={t('secrets.value')} type="password" value={password} onChange={(e) => setPassword(e.target.value)} style={input} />
-        )}
-        <button type="button" onClick={() => void create()} style={btn}>{t('secrets.create')}</button>
-      </div>
-      {rows.map((r) => (
-        <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', padding: 8 }}>
-          <span>{r.name} <code style={{ color: 'var(--muted)' }}>{tt(t, 'secretTypes', r.type)}</code> · {r.id.slice(0, 8)}</span>
-          <button type="button" onClick={async () => { await api(`/secrets/${r.id}`, { method: 'DELETE' }); await load(); }}
-            style={{ background: 'transparent', border: '1px solid var(--danger)', color: 'var(--danger)', borderRadius: 6, cursor: 'pointer' }}>{t('secrets.delete')}</button>
+    <div className="sd-page">
+      <PageHeader title={t('secrets.title')} subtitle={t('secrets.neverReexposed')} />
+      <Panel>
+        <div className="sd-stack" style={{ maxWidth: 440 }}>
+          <Field label={t('secrets.name')}><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>
+          <Field label="Type">
+            <Select value={type} onChange={(e) => setType(e.target.value)}>
+              <option value="registry_credentials">{t('secretTypes.registry_credentials')}</option>
+              <option value="generic_token">{t('secretTypes.generic_token')}</option>
+              <option value="header_secret">{t('secretTypes.header_secret')}</option>
+            </Select>
+          </Field>
+          {type === 'registry_credentials' ? (
+            <>
+              <Field label={t('secrets.username')}><Input value={username} onChange={(e) => setUsername(e.target.value)} /></Field>
+              <Field label={t('secrets.passwordToken')}><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
+              <Field label={t('secrets.serverOptional')}><Input value={serveraddress} onChange={(e) => setServeraddress(e.target.value)} /></Field>
+            </>
+          ) : (
+            <Field label={t('secrets.value')}><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
+          )}
+          <Button onClick={() => { void create(); }} style={{ width: 'fit-content' }}>{t('secrets.create')}</Button>
         </div>
-      ))}
+      </Panel>
+      {rows.length === 0 ? <EmptyState>—</EmptyState> : null}
+      <Panel>
+        {rows.map((r) => (
+          <DataRow
+            key={r.id}
+            title={r.name}
+            meta={`${tt(t, 'secretTypes', r.type)} · ${r.id.slice(0, 8)}…`}
+            actions={(
+              <Button variant="danger" onClick={async () => { await api(`/secrets/${r.id}`, { method: 'DELETE' }); await load(); }}>
+                {t('secrets.delete')}
+              </Button>
+            )}
+          />
+        ))}
+      </Panel>
     </div>
   );
 }
-
-const input: React.CSSProperties = { background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', color: 'var(--text)' };
-const btn: React.CSSProperties = { background: 'var(--accent)', border: 'none', borderRadius: 8, padding: '8px 12px', fontWeight: 600, cursor: 'pointer' };

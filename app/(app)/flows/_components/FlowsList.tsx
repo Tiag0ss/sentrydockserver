@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { btnStyle, btnSecondaryStyle } from './flowConstants';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+import { PageHeader, Button, Alert, EmptyState, Panel, DataRow } from '@/components/ui';
 
 export type FlowSummary = {
   id: string;
@@ -45,71 +45,44 @@ export function FlowsList({ onCreate, onEdit }: Props) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <header style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ flex: 1 }}>
-          <h1 style={{ margin: 0 }}>{t('flows.title')}</h1>
-          <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: 14 }}>
-            {t('flows.subtitle')}
-          </p>
-        </div>
-        <button type="button" onClick={onCreate} style={btnStyle}>{t('flows.new')}</button>
-      </header>
+    <div className="sd-page">
+      <PageHeader
+        title={t('flows.title')}
+        subtitle={t('flows.subtitle')}
+        actions={<Button onClick={onCreate}>{t('flows.new')}</Button>}
+      />
 
-      {loading && <p style={{ color: 'var(--muted)' }}>{t('flows.loading')}</p>}
-      {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
+      {loading ? <p style={{ color: 'var(--sd-muted)' }}>{t('flows.loading')}</p> : null}
+      {error ? <Alert>{error}</Alert> : null}
 
-      {!loading && !error && flows.length === 0 && (
-        <div style={{
-          border: '1px dashed var(--border)',
-          borderRadius: 12,
-          padding: 32,
-          textAlign: 'center',
-          color: 'var(--muted)',
-        }}>
-          {t('flows.empty')}
-        </div>
-      )}
+      {!loading && !error && flows.length === 0 ? (
+        <EmptyState>{t('flows.empty')}</EmptyState>
+      ) : null}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {flows.map((f) => {
-          const nodeCount = f.graph?.nodes?.length ?? 0;
-          const edgeCount = f.graph?.edges?.length ?? 0;
-          return (
-            <div
-              key={f.id}
-              style={{
-                display: 'flex',
-                gap: 12,
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                background: 'var(--panel)',
-                border: '1px solid var(--border)',
-                borderRadius: 12,
-                padding: '14px 16px',
-              }}
-            >
-              <div style={{ flex: 1, minWidth: 180 }}>
-                <div style={{ fontWeight: 600 }}>{f.name}</div>
-                <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+      {flows.map((f) => {
+        const nodeCount = f.graph?.nodes?.length ?? 0;
+        const edgeCount = f.graph?.edges?.length ?? 0;
+        return (
+          <Panel key={f.id}>
+            <DataRow
+              title={f.name}
+              meta={(
+                <>
                   {f.description || t('flows.noDescription')} · {nodeCount} {t('flows.nodes')} · {edgeCount} {t('flows.edges')}
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                  <br />
                   {t('flows.updated')} {formatDate(f.updatedAt)}
-                </div>
-              </div>
-              <button type="button" onClick={() => onEdit(f)} style={btnStyle}>{t('flows.edit')}</button>
-              <button
-                type="button"
-                onClick={() => void remove(f.id, f.name)}
-                style={{ ...btnSecondaryStyle, color: 'var(--danger)', borderColor: 'var(--danger)' }}
-              >
-                {t('flows.delete')}
-              </button>
-            </div>
-          );
-        })}
-      </div>
+                </>
+              )}
+              actions={(
+                <>
+                  <Button onClick={() => onEdit(f)}>{t('flows.edit')}</Button>
+                  <Button variant="danger" onClick={() => { void remove(f.id, f.name); }}>{t('flows.delete')}</Button>
+                </>
+              )}
+            />
+          </Panel>
+        );
+      })}
     </div>
   );
 }

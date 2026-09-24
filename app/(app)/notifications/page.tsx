@@ -7,13 +7,14 @@ import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { tt } from '@/lib/i18n/translate';
 import type { NotificationItem } from '@/components/NotificationBell';
+import { PageHeader, Button, Panel, EmptyState } from '@/components/ui';
 
 type ListResponse = { items: NotificationItem[]; unreadCount: number };
 
 function levelColor(level: string): string {
-  if (level === 'error') return 'var(--danger)';
-  if (level === 'warn') return 'var(--warn)';
-  return 'var(--accent)';
+  if (level === 'error') return 'var(--sd-danger)';
+  if (level === 'warn') return 'var(--sd-warn)';
+  return 'var(--sd-accent)';
 }
 
 export default function NotificationsPage() {
@@ -45,82 +46,67 @@ export default function NotificationsPage() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 720 }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-        <div>
-          <h1 style={{ margin: 0 }}>{t('notifications.title')}</h1>
-          <p style={{ color: 'var(--muted)', margin: '6px 0 0', fontSize: 14 }}>
-            {t('notifications.subtitle')}
-            {unread > 0 ? ` · ${t('notifications.unreadCount', { count: String(unread) })}` : ''}
-          </p>
-        </div>
-        {unread > 0 && (
-          <button
-            type="button"
-            onClick={() => { void markAll(); }}
-            style={{
-              background: 'transparent',
-              border: '1px solid var(--border)',
-              color: 'var(--text)',
-              borderRadius: 8,
-              padding: '8px 12px',
-              cursor: 'pointer',
-            }}
-          >
-            {t('notifications.markAllRead')}
-          </button>
-        )}
-      </header>
+    <div className="sd-page">
+      <PageHeader
+        title={t('notifications.title')}
+        subtitle={`${t('notifications.subtitle')}${unread > 0 ? ` · ${t('notifications.unreadCount', { count: String(unread) })}` : ''}`}
+        actions={unread > 0 ? (
+          <Button variant="ghost" onClick={() => { void markAll(); }}>{t('notifications.markAllRead')}</Button>
+        ) : undefined}
+      />
 
-      {items.length === 0 && (
-        <p style={{ color: 'var(--muted)' }}>{t('notifications.empty')}</p>
-      )}
+      {items.length === 0 ? <EmptyState>{t('notifications.empty')}</EmptyState> : null}
 
       {items.map((n) => (
-        <article
+        <Panel
           key={n.id}
-          style={{
-            border: '1px solid var(--border)',
-            borderRadius: 12,
-            padding: 14,
-            background: n.readAt ? 'var(--panel)' : 'rgba(61, 214, 198, 0.08)',
-          }}
+          className=""
+          // highlight unread via inline
         >
-          <div style={{ display: 'flex', gap: 10 }}>
-            <span style={{
-              width: 10,
-              height: 10,
-              borderRadius: 99,
-              background: levelColor(n.level),
-              marginTop: 5,
-              flexShrink: 0,
-            }} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 14, lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                {n.message}
-              </div>
-              <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                <span>{formatDate(n.ts)}</span>
-                <span style={{ textTransform: 'uppercase', color: levelColor(n.level), fontWeight: 600 }}>{tt(t, 'notifyLevel', n.level)}</span>
-                {n.flowName && <span>{n.flowName}</span>}
-                {n.containerName && <span>{n.containerName}</span>}
-                {n.image && <span>{n.image}</span>}
-                {n.flowRunId && (
-                  <Link href={`/runs/${n.flowRunId}`}>{t('notifications.openRun')}</Link>
-                )}
-                {!n.readAt && (
-                  <button
-                    type="button"
-                    onClick={() => { void markRead(n.id); }}
-                    style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, fontSize: 12 }}
-                  >
-                    {t('notifications.markRead')}
-                  </button>
-                )}
+          <div
+            style={{
+              margin: -16,
+              padding: 14,
+              borderRadius: 12,
+              background: n.readAt ? 'transparent' : 'color-mix(in srgb, var(--sd-accent) 8%, transparent)',
+            }}
+          >
+            <div style={{ display: 'flex', gap: 10 }}>
+              <span style={{
+                width: 10,
+                height: 10,
+                borderRadius: 4,
+                background: levelColor(n.level),
+                marginTop: 5,
+                flexShrink: 0,
+              }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                  {n.message}
+                </div>
+                <div style={{ color: 'var(--sd-muted)', fontSize: 12, marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  <span>{formatDate(n.ts)}</span>
+                  <span style={{ textTransform: 'uppercase', color: levelColor(n.level), fontWeight: 600 }}>
+                    {tt(t, 'notifyLevel', n.level)}
+                  </span>
+                  {n.flowName ? <span>{n.flowName}</span> : null}
+                  {n.containerName ? <span>{n.containerName}</span> : null}
+                  {n.image ? <span>{n.image}</span> : null}
+                  {n.flowRunId ? <Link href={`/runs/${n.flowRunId}`}>{t('notifications.openRun')}</Link> : null}
+                  {!n.readAt ? (
+                    <button
+                      type="button"
+                      onClick={() => { void markRead(n.id); }}
+                      style={{ background: 'none', border: 'none', color: 'var(--sd-accent)', cursor: 'pointer', padding: 0, fontSize: 12 }}
+                    >
+                      {t('notifications.markRead')}
+                    </button>
+                  ) : null}
+                </div>
               </div>
             </div>
           </div>
-        </article>
+        </Panel>
       ))}
     </div>
   );

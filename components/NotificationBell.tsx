@@ -109,9 +109,9 @@ export function NotificationBell() {
           position: 'relative',
           width: 40,
           height: 40,
-          background: open ? 'rgba(61, 214, 198, 0.12)' : 'transparent',
-          border: `1px solid ${open ? 'var(--accent)' : 'var(--border)'}`,
-          color: 'var(--text)',
+          background: open ? 'color-mix(in srgb, var(--sd-accent) 12%, transparent)' : 'transparent',
+          border: `1px solid ${open ? 'var(--sd-accent)' : 'var(--sd-border)'}`,
+          color: 'var(--sd-text)',
           borderRadius: 10,
           cursor: 'pointer',
           display: 'inline-flex',
@@ -157,7 +157,7 @@ export function NotificationBell() {
           background: 'var(--panel)',
           border: '1px solid var(--border)',
           borderRadius: 12,
-          boxShadow: '0 16px 48px rgba(0,0,0,0.5)',
+          boxShadow: 'var(--sd-shadow), 0 16px 48px rgba(0,0,0,0.18)',
           zIndex: 80,
         }}>
           <div style={{
@@ -200,7 +200,7 @@ export function NotificationBell() {
               style={{
                 padding: '12px 14px',
                 borderBottom: '1px solid var(--border)',
-                background: n.readAt ? 'transparent' : 'rgba(61, 214, 198, 0.06)',
+                background: n.readAt ? 'transparent' : 'color-mix(in srgb, var(--sd-accent) 8%, transparent)',
                 cursor: n.readAt ? 'default' : 'pointer',
               }}
               onClick={() => { if (!n.readAt) void markRead(n.id); }}

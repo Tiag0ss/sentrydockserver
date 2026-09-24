@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+import { PageHeader, Button, Input, Textarea, Field, Panel, DataRow, Badge, EmptyState } from '@/components/ui';
 
 export default function TemplatesPage() {
   const { t } = useI18n();
@@ -15,40 +16,44 @@ export default function TemplatesPage() {
   useEffect(() => { void load(); }, []);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <h1 style={{ margin: 0 }}>{t('templates.title')}</h1>
-      <div style={{ display: 'grid', gap: 8, maxWidth: 520 }}>
-        <input placeholder={t('templates.key')} value={key} onChange={(e) => setKey(e.target.value)} style={input} />
-        <input placeholder={t('templates.name')} value={name} onChange={(e) => setName(e.target.value)} style={input} />
-        <textarea value={body} onChange={(e) => setBody(e.target.value)} style={{ ...input, minHeight: 100 }} />
-        <button type="button" style={btn} onClick={async () => {
-          await api('/templates', { method: 'POST', body: JSON.stringify({ key, name, body }) });
-          await load();
-        }}>{t('templates.create')}</button>
-      </div>
-      {rows.map((r) => (
-        <div key={r.id} style={{ borderBottom: '1px solid var(--border)', padding: 8, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-          <div style={{ flex: 1 }}>
-            <strong>{r.name}</strong> <code>{r.key}</code> {r.builtin && t('templates.builtin')}
-            <pre style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'pre-wrap' }}>{r.body}</pre>
-          </div>
-          {!r.builtin && (
-            <button
-              type="button"
-              onClick={async () => {
-                await api(`/templates/${r.id}`, { method: 'DELETE' });
-                await load();
-              }}
-              style={{ background: 'transparent', border: '1px solid var(--danger)', color: 'var(--danger)', borderRadius: 6, cursor: 'pointer' }}
-            >
-              {t('common.delete')}
-            </button>
-          )}
+    <div className="sd-page">
+      <PageHeader title={t('templates.title')} />
+      <Panel>
+        <div className="sd-stack" style={{ maxWidth: 560 }}>
+          <Field label={t('templates.key')}><Input value={key} onChange={(e) => setKey(e.target.value)} /></Field>
+          <Field label={t('templates.name')}><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>
+          <Field label="Body"><Textarea value={body} onChange={(e) => setBody(e.target.value)} /></Field>
+          <Button
+            style={{ width: 'fit-content' }}
+            onClick={async () => {
+              await api('/templates', { method: 'POST', body: JSON.stringify({ key, name, body }) });
+              await load();
+            }}
+          >
+            {t('templates.create')}
+          </Button>
         </div>
-      ))}
+      </Panel>
+      {rows.length === 0 ? <EmptyState>—</EmptyState> : null}
+      <Panel>
+        {rows.map((r) => (
+          <DataRow
+            key={r.id}
+            title={(
+              <>
+                {r.name} <code style={{ fontSize: 12, color: 'var(--sd-muted)' }}>{r.key}</code>
+                {r.builtin ? <> {' '}<Badge>{t('templates.builtin')}</Badge></> : null}
+              </>
+            )}
+            meta={<pre style={{ margin: 0, fontSize: 11, whiteSpace: 'pre-wrap', fontFamily: 'IBM Plex Mono, monospace' }}>{r.body}</pre>}
+            actions={!r.builtin ? (
+              <Button variant="danger" onClick={async () => { await api(`/templates/${r.id}`, { method: 'DELETE' }); await load(); }}>
+                {t('common.delete')}
+              </Button>
+            ) : undefined}
+          />
+        ))}
+      </Panel>
     </div>
   );
 }
-
-const input: React.CSSProperties = { background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', color: 'var(--text)' };
-const btn: React.CSSProperties = { background: 'var(--accent)', border: 'none', borderRadius: 8, padding: '8px 12px', fontWeight: 600, cursor: 'pointer' };

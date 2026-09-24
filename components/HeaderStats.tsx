@@ -41,11 +41,12 @@ function StatChip({
     gap: 2,
     padding: '4px 12px',
     borderRadius: 8,
-    border: '1px solid var(--border)',
-    background: 'rgba(20, 28, 46, 0.55)',
+    border: '1px solid var(--sd-border)',
+    background: 'var(--sd-panel)',
     textDecoration: 'none',
     color: 'inherit',
     minWidth: 88,
+    flexShrink: 0,
   };
   if (href) {
     return <Link href={href} style={style}>{inner}</Link>;
@@ -89,7 +90,8 @@ export function HeaderStats() {
       alignItems: 'center',
       flex: 1,
       minWidth: 0,
-      flexWrap: 'wrap',
+      flexWrap: 'nowrap',
+      overflowX: 'auto',
     }}>
       <StatChip label={t('dashboard.agentsOnline')} value={summary.agentsOnline} href="/agents" />
       <StatChip label={t('dashboard.activeRuns')} value={summary.activeRuns} href="/runs" />

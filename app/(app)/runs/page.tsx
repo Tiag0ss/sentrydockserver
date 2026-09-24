@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { tt } from '@/lib/i18n/translate';
 import { ActionIconButton, IconOpen, IconRerun, StatusPill } from './_components/RunActionIcons';
+import { PageHeader, Alert, EmptyState } from '@/components/ui';
 
 type Run = {
   id: string;
@@ -69,24 +70,16 @@ export default function RunsPage() {
     const hint = contextHint(r);
     const busy = busyId === r.id;
     return (
-      <article style={{
-        display: 'flex',
-        gap: 16,
-        alignItems: 'center',
-        padding: '14px 16px',
-        background: 'var(--panel)',
-        border: '1px solid var(--border)',
-        borderRadius: 12,
-      }}>
+      <article className="sd-panel" style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 4 }}>
             <strong style={{ fontSize: 15 }}>{r.flowName}</strong>
             <StatusPill status={r.status} />
             {r.dryRun ? (
-              <span style={{ fontSize: 11, color: 'var(--warn)' }}>{t('runs.dryRunBadge')}</span>
+              <span style={{ fontSize: 11, color: 'var(--sd-warn)' }}>{t('runs.dryRunBadge')}</span>
             ) : null}
           </div>
-          <div style={{ color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
+          <div style={{ color: 'var(--sd-muted)', fontSize: 12, lineHeight: 1.45 }}>
             <span title={r.id}>{r.id.slice(0, 8)}…</span>
             {' · '}
             <span>{tt(t, 'trigger', r.triggerSource)}</span>
@@ -120,28 +113,19 @@ export default function RunsPage() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      <header>
-        <h1 style={{ margin: 0 }}>{t('runs.title')}</h1>
-        <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: 14 }}>
-          {t('runs.subtitle')}
-        </p>
-      </header>
-      {error && <p style={{ color: 'var(--danger)', margin: 0 }}>{error}</p>}
+    <div className="sd-page">
+      <PageHeader title={t('runs.title')} subtitle={t('runs.subtitle')} />
+      {error ? <Alert>{error}</Alert> : null}
 
-      <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <section className="sd-stack">
         <h2 style={{ margin: 0, fontSize: 16 }}>{t('runs.active')}</h2>
-        {active.length === 0 && (
-          <p style={{ color: 'var(--muted)', margin: 0 }}>{t('runs.emptyActive')}</p>
-        )}
+        {active.length === 0 ? <EmptyState>{t('runs.emptyActive')}</EmptyState> : null}
         {active.map((r) => <RunCard key={r.id} r={r} showStep />)}
       </section>
 
-      <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <section className="sd-stack">
         <h2 style={{ margin: 0, fontSize: 16 }}>{t('runs.history')}</h2>
-        {history.length === 0 && (
-          <p style={{ color: 'var(--muted)', margin: 0 }}>{t('runs.emptyHistory')}</p>
-        )}
+        {history.length === 0 ? <EmptyState>{t('runs.emptyHistory')}</EmptyState> : null}
         {history.map((r) => <RunCard key={r.id} r={r} />)}
       </section>
     </div>

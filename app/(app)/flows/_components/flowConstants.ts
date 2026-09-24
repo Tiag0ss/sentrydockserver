@@ -89,18 +89,18 @@ export const TEMPLATE_TAGS = [
 export const inputStyle: React.CSSProperties = {
   display: 'block',
   width: '100%',
-  background: 'var(--bg)',
-  border: '1px solid var(--border)',
+  background: 'var(--sd-panel)',
+  border: '1px solid var(--sd-border)',
   borderRadius: 6,
   padding: '6px 8px',
-  color: 'var(--text)',
+  color: 'var(--sd-text)',
   marginTop: 4,
   boxSizing: 'border-box',
 };
 
 export const btnStyle: React.CSSProperties = {
-  background: 'var(--accent)',
-  color: 'var(--bg)',
+  background: 'var(--sd-accent)',
+  color: 'var(--sd-accent-fg)',
   border: 'none',
   borderRadius: 8,
   padding: '8px 12px',
@@ -111,6 +111,6 @@ export const btnStyle: React.CSSProperties = {
 export const btnSecondaryStyle: React.CSSProperties = {
   ...btnStyle,
   background: 'transparent',
-  color: 'var(--text)',
-  border: '1px solid var(--border)',
+  color: 'var(--sd-text)',
+  border: '1px solid var(--sd-border)',
 };
