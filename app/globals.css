@@ -234,6 +234,189 @@ button, input, select, textarea { font: inherit; }
   margin-left: auto;
 }
 
+.sd-icon-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--sd-border);
+  background: transparent;
+  color: var(--sd-text);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease, opacity 0.12s ease;
+}
+.sd-icon-btn:hover:not(:disabled) {
+  background: var(--sd-surface-2);
+}
+.sd-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.sd-icon-btn-primary {
+  border-color: color-mix(in srgb, var(--sd-accent) 55%, var(--sd-border));
+  color: var(--sd-accent);
+  background: color-mix(in srgb, var(--sd-accent) 10%, transparent);
+}
+.sd-icon-btn-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--sd-accent) 18%, transparent);
+}
+.sd-icon-btn-danger {
+  border-color: color-mix(in srgb, var(--sd-danger) 45%, var(--sd-border));
+  color: var(--sd-danger);
+}
+.sd-icon-btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--sd-danger) 10%, transparent);
+}
+.sd-icon-btn-warn {
+  border-color: color-mix(in srgb, var(--sd-warn) 45%, var(--sd-border));
+  color: var(--sd-warn);
+}
+.sd-icon-btn[data-tooltip]:hover::after,
+.sd-icon-btn[data-tooltip]:focus-visible::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--sd-text);
+  color: var(--sd-panel);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 50;
+  box-shadow: var(--sd-shadow);
+}
+.sd-icon-btn[data-tooltip]:hover::before,
+.sd-icon-btn[data-tooltip]:focus-visible::before {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 4px solid transparent;
+  border-top-color: var(--sd-text);
+  pointer-events: none;
+  z-index: 50;
+}
+
+.sd-page-compact {
+  gap: 12px;
+}
+.sd-page-compact .sd-page-header h1 {
+  font-size: 1.35rem;
+}
+.sd-page-compact .sd-page-header p {
+  margin-top: 2px;
+  font-size: 0.8rem;
+}
+
+.sd-btn-sm,
+.sd-btn.sd-btn-sm,
+.sd-btn-ghost.sd-btn-sm,
+.sd-btn-danger.sd-btn-sm {
+  padding: 4px 10px;
+  min-height: 28px;
+  font-size: 0.75rem;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+.sd-input-sm,
+.sd-input.sd-input-sm {
+  min-height: 34px;
+  padding: 6px 10px;
+  font-size: 0.875rem;
+}
+
+.sd-flows-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sd-flow-card {
+  padding: 10px 12px;
+}
+
+.sd-flow-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  border-bottom: none;
+  flex-wrap: wrap;
+}
+.sd-flow-item-main {
+  flex: 1;
+  min-width: 0;
+}
+.sd-flow-item-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  line-height: 1.3;
+}
+.sd-flow-item-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.sd-flow-run-status {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.sd-flow-dry {
+  font-size: 0.65rem;
+  color: var(--sd-warn);
+  font-weight: 600;
+}
+.sd-flow-run-link {
+  font-size: 0.75rem;
+  color: var(--sd-accent);
+  text-decoration: none;
+}
+.sd-flow-run-link:hover {
+  text-decoration: underline;
+}
+.sd-flow-run-none {
+  font-size: 0.75rem;
+  color: var(--sd-muted);
+}
+.sd-flow-sep {
+  font-size: 0.75rem;
+  color: var(--sd-muted);
+}
+.sd-flow-next {
+  font-size: 0.75rem;
+  color: var(--sd-muted);
+}
+.sd-flow-item-meta {
+  margin-top: 2px;
+  font-size: 0.72rem;
+  color: var(--sd-muted);
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sd-flow-item-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
 .sd-alert {
   padding: 10px 14px;
   border-radius: 8px;
@@ -706,4 +889,17 @@ button, input, select, textarea { font: inherit; }
   }
   .sd-row-actions > * { flex: 1; }
   .sd-form-row > * { flex: 1 1 100%; }
+  .sd-flow-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .sd-flow-item-actions {
+    margin-left: 0;
+    width: 100%;
+  }
+  .sd-flow-item-actions > * { flex: 1; }
+  .sd-flow-item-meta {
+    white-space: normal;
+  }
 }

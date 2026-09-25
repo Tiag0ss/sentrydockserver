@@ -147,6 +147,7 @@ async function upsertStep(runId: string, nodeId: string, branchId: string | null
   lastError: string | null;
   startedAt: Date | null;
   finishedAt: Date | null;
+  detailJson: string | null;
 }> = {}) {
   const existing = runsRepo.findStep(runId, nodeId, branchId);
   if (existing) {
@@ -164,8 +165,13 @@ async function upsertStep(runId: string, nodeId: string, branchId: string | null
       lastError: patch.lastError ?? null,
       startedAt: patch.startedAt ?? null,
       finishedAt: patch.finishedAt ?? null,
+      detailJson: patch.detailJson ?? null,
     });
   return id;
+}
+
+function detailJson(detail: Record<string, unknown>): string {
+  return JSON.stringify(detail);
 }
 
 export async function resumeInterruptedRuns() {
@@ -310,7 +316,20 @@ async function executeNode(
           flowRunId: runId,
           payload: { type: node.type, data: node.data },
         });
-        await upsertStep(runId, node.id, branchId, 'success', { finishedAt: new Date() });
+        await upsertStep(runId, node.id, branchId, 'success', {
+          finishedAt: new Date(),
+          detailJson: detailJson({
+            dryRun: true,
+            agentId: String(node.data.agentId || ctx.agentId || '') || undefined,
+            containerName: String(node.data.containerName || ctx.containerName || '') || undefined,
+            image: String(node.data.image || ctx.image || '') || undefined,
+            projectPath: node.data.projectPath ? String(node.data.projectPath) : undefined,
+            desiredDigest: ctx.newDigest ? String(ctx.newDigest) : undefined,
+            previousDigest: ctx.previousDigest ? String(ctx.previousDigest) : undefined,
+            oldDigest: ctx.oldDigest ? String(ctx.oldDigest) : undefined,
+            newDigest: ctx.newDigest ? String(ctx.newDigest) : undefined,
+          }),
+        });
         return 'success';
       }
 
@@ -334,30 +353,70 @@ async function executeNode(
           ) as {
             updateAvailable?: boolean;
             remoteDigest?: string;
+            remoteDigests?: string[];
             localDigests?: string[];
             imageId?: string;
+            remoteSource?: string;
+            image?: string;
+            configImage?: string;
           };
           const updateAvailable = Boolean(check.updateAvailable);
+          const oldDigest = check.localDigests?.[0] || check.imageId || '';
+          const newDigest = check.remoteDigest || '';
+          const resolvedImage = String(check.image || image || '');
+          const configImage = String(check.configImage || '');
           Object.assign(ctx, {
             updateAvailable,
-            oldDigest: check.localDigests?.[0] || check.imageId || '',
-            newDigest: check.remoteDigest || '',
-            image,
+            oldDigest,
+            newDigest,
+            image: resolvedImage || image,
             agentId,
             containerName,
+            ...(configImage && !/^sha256:/i.test(configImage) ? { previousImage: configImage } : {}),
             __nextHandle: updateAvailable ? 'update' : 'no_update',
           });
-          break;
+          await upsertStep(runId, node.id, branchId, 'success', {
+            finishedAt: new Date(),
+            detailJson: detailJson({
+              agentId,
+              containerName,
+              image: resolvedImage || image,
+              updateAvailable,
+              oldDigest,
+              newDigest,
+              remoteDigests: check.remoteDigests || (newDigest ? [newDigest] : []),
+              reason: updateAvailable ? 'digest_mismatch' : 'up_to_date',
+              branch: updateAvailable ? 'update' : 'no_update',
+            }),
+          });
+          await audit({
+            actor: 'system',
+            action: 'flow_node.success',
+            entity: 'flow_node',
+            entityId: node.id,
+            flowRunId: runId,
+            payload: { type: node.type, attempts },
+          });
+          return 'success';
         }
         case 'pull_image': {
           const agentId = String(node.data.agentId || ctx.agentId || '');
           const image = String(node.data.image || ctx.image || '');
           const auth = await getRegistryAuth(String(node.data.secretId || ctx.secretId || '') || null);
-          // save previous digest for rollback
+          // save previous image id (for digest compare) + name:tag (for recreate/rollback)
           if (ctx.containerName) {
             try {
-              const insp = await agentGateway.sendCommand(agentId, 'docker.inspect', { id: ctx.containerName }) as { Image?: string };
+              const insp = await agentGateway.sendCommand(agentId, 'docker.inspect', { id: ctx.containerName }) as {
+                Image?: string;
+                Config?: { Image?: string };
+              };
               ctx.previousDigest = insp.Image;
+              const configImage = String(insp.Config?.Image || '');
+              if (configImage && !/^sha256:/i.test(configImage)) {
+                ctx.previousImage = configImage;
+              } else if (image && !/^sha256:/i.test(image)) {
+                ctx.previousImage = image;
+              }
             } catch (err) {
               logger.warn('could not inspect container for previous digest', {
                 err: err instanceof Error ? err.message : String(err),
@@ -365,7 +424,26 @@ async function executeNode(
             }
           }
           await agentGateway.sendCommand(agentId, 'docker.pull', { image, auth });
-          break;
+          await upsertStep(runId, node.id, branchId, 'success', {
+            finishedAt: new Date(),
+            detailJson: detailJson({
+              agentId,
+              image,
+              containerName: ctx.containerName ? String(ctx.containerName) : undefined,
+              previousDigest: ctx.previousDigest ? String(ctx.previousDigest) : undefined,
+              previousImage: ctx.previousImage ? String(ctx.previousImage) : undefined,
+              newDigest: ctx.newDigest ? String(ctx.newDigest) : undefined,
+            }),
+          });
+          await audit({
+            actor: 'system',
+            action: 'flow_node.success',
+            entity: 'flow_node',
+            entityId: node.id,
+            flowRunId: runId,
+            payload: { type: node.type, attempts },
+          });
+          return 'success';
         }
         case 'recreate_container': {
           const agentId = String(node.data.agentId || ctx.agentId || '');
@@ -373,7 +451,25 @@ async function executeNode(
           const image = String(node.data.image || ctx.image || '');
           const desiredDigest = ctx.newDigest ? String(ctx.newDigest) : undefined;
           await agentGateway.sendCommand(agentId, 'docker.recreate', { id, image, desiredDigest });
-          break;
+          await upsertStep(runId, node.id, branchId, 'success', {
+            finishedAt: new Date(),
+            detailJson: detailJson({
+              agentId,
+              containerName: id,
+              image,
+              desiredDigest,
+              oldDigest: ctx.oldDigest ? String(ctx.oldDigest) : undefined,
+            }),
+          });
+          await audit({
+            actor: 'system',
+            action: 'flow_node.success',
+            entity: 'flow_node',
+            entityId: node.id,
+            flowRunId: runId,
+            payload: { type: node.type, attempts },
+          });
+          return 'success';
         }
         case 'compose_up':
         case 'compose_down': {
@@ -388,17 +484,47 @@ async function executeNode(
             action: node.type === 'compose_up' ? 'up' : 'down',
             projectPath,
           });
-          break;
+          await upsertStep(runId, node.id, branchId, 'success', {
+            finishedAt: new Date(),
+            detailJson: detailJson({
+              agentId,
+              projectPath,
+              action: node.type === 'compose_up' ? 'up' : 'down',
+            }),
+          });
+          await audit({
+            actor: 'system',
+            action: 'flow_node.success',
+            entity: 'flow_node',
+            entityId: node.id,
+            flowRunId: runId,
+            payload: { type: node.type, attempts },
+          });
+          return 'success';
         }
         case 'notify': {
           try {
-            const message = renderTemplate(String(node.data.message || 'notify'), ctx);
+            let message = renderTemplate(String(node.data.message || 'notify'), ctx);
+            if (dryRun) message = `[dry-run] ${message}`;
             createNotification({
               message,
               flowRunId: runId,
               level: String(node.data.level || ''),
               ctx,
             });
+            await upsertStep(runId, node.id, branchId, 'success', {
+              finishedAt: new Date(),
+              detailJson: detailJson({ message: message.slice(0, 500), dryRun: dryRun || undefined }),
+            });
+            await audit({
+              actor: 'system',
+              action: 'flow_node.success',
+              entity: 'flow_node',
+              entityId: node.id,
+              flowRunId: runId,
+              payload: { type: node.type, attempts, dryRun },
+            });
+            return 'success';
           } catch (err) {
             logger.warn('notify failed (ignored for run outcome)', {
               runId,
@@ -410,7 +536,6 @@ async function executeNode(
             });
             return 'success';
           }
-          break;
         }
         case 'webhook': {
           const url = String(node.data.url || '');
@@ -444,10 +569,34 @@ async function executeNode(
               await upsertStep(runId, node.id, branchId, 'failed', {
                 lastError: `Webhook HTTP ${res.status}`,
                 finishedAt: new Date(),
+                detailJson: detailJson({
+                  url: url.replace(/\/\/.*@/, '//***@'),
+                  method,
+                  httpStatus: res.status,
+                  branch: 'error',
+                }),
               });
               // Side-effect only — do not fail the run
               return 'success';
             }
+            await upsertStep(runId, node.id, branchId, 'success', {
+              finishedAt: new Date(),
+              detailJson: detailJson({
+                url: url.replace(/\/\/.*@/, '//***@'),
+                method,
+                httpStatus: res.status,
+                templateKey: templateKey || undefined,
+              }),
+            });
+            await audit({
+              actor: 'system',
+              action: 'flow_node.success',
+              entity: 'flow_node',
+              entityId: node.id,
+              flowRunId: runId,
+              payload: { type: node.type, attempts },
+            });
+            return 'success';
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             logger.warn('webhook failed (ignored for run outcome)', { runId, err: msg });
@@ -455,6 +604,11 @@ async function executeNode(
             await upsertStep(runId, node.id, branchId, 'failed', {
               lastError: msg,
               finishedAt: new Date(),
+              detailJson: detailJson({
+                url: url.replace(/\/\/.*@/, '//***@'),
+                method,
+                branch: 'error',
+              }),
             });
             await audit({
               actor: 'system',
@@ -464,17 +618,45 @@ async function executeNode(
             });
             return 'success';
           }
-          break;
         }
         case 'wait_approval': {
           runsRepo.update(runId, { status: 'waiting_approval' });
-          await upsertStep(runId, node.id, branchId, 'running', {});
+          await upsertStep(runId, node.id, branchId, 'running', {
+            detailJson: detailJson({
+              image: ctx.image ? String(ctx.image) : undefined,
+              containerName: ctx.containerName ? String(ctx.containerName) : undefined,
+              oldDigest: ctx.oldDigest ? String(ctx.oldDigest) : undefined,
+              newDigest: ctx.newDigest ? String(ctx.newDigest) : undefined,
+              updateAvailable: ctx.updateAvailable != null ? Boolean(ctx.updateAvailable) : undefined,
+            }),
+          });
           return 'waiting';
         }
         case 'condition': {
           const field = String(node.data.field || 'updateAvailable');
-          ctx.__nextHandle = ctx[field] ? 'true' : 'false';
-          break;
+          const value = Boolean(ctx[field]);
+          ctx.__nextHandle = value ? 'true' : 'false';
+          await upsertStep(runId, node.id, branchId, 'success', {
+            finishedAt: new Date(),
+            detailJson: detailJson({
+              field,
+              value,
+              branch: value ? 'true' : 'false',
+              image: ctx.image ? String(ctx.image) : undefined,
+              containerName: ctx.containerName ? String(ctx.containerName) : undefined,
+              oldDigest: ctx.oldDigest ? String(ctx.oldDigest) : undefined,
+              newDigest: ctx.newDigest ? String(ctx.newDigest) : undefined,
+            }),
+          });
+          await audit({
+            actor: 'system',
+            action: 'flow_node.success',
+            entity: 'flow_node',
+            entityId: node.id,
+            flowRunId: runId,
+            payload: { type: node.type, attempts },
+          });
+          return 'success';
         }
         case 'wait_healthy': {
           const agentId = String(node.data.agentId || ctx.agentId || '');
@@ -511,9 +693,19 @@ async function executeNode(
           }
           if (!healthy && autoRollback) {
             try {
-              const image = String(ctx.previousDigest || ctx.oldDigest || node.data.image || ctx.image || '');
+              const image = String(
+                ctx.previousImage
+                || node.data.image
+                || ctx.image
+                || '',
+              );
+              const desiredDigest = ctx.previousDigest ? String(ctx.previousDigest) : undefined;
               if (image && id && agentId) {
-                await agentGateway.sendCommand(agentId, 'docker.recreate', { id, image });
+                await agentGateway.sendCommand(agentId, 'docker.recreate', {
+                  id,
+                  image,
+                  ...(desiredDigest ? { desiredDigest } : {}),
+                });
                 ctx.rolledBack = true;
               }
             } catch (err) {
@@ -523,14 +715,61 @@ async function executeNode(
             }
           }
           ctx.__nextHandle = healthy ? 'healthy' : 'timeout';
-          break;
+          await upsertStep(runId, node.id, branchId, 'success', {
+            finishedAt: new Date(),
+            detailJson: detailJson({
+              agentId,
+              containerName: id,
+              probe,
+              healthUrl: healthUrl || undefined,
+              healthy,
+              rolledBack: Boolean(ctx.rolledBack),
+              branch: healthy ? 'healthy' : 'timeout',
+              elapsedMs: Date.now() - start,
+            }),
+          });
+          await audit({
+            actor: 'system',
+            action: 'flow_node.success',
+            entity: 'flow_node',
+            entityId: node.id,
+            flowRunId: runId,
+            payload: { type: node.type, attempts },
+          });
+          return 'success';
         }
         case 'rollback': {
           const agentId = String(node.data.agentId || ctx.agentId || '');
           const id = String(node.data.containerName || ctx.containerName || '');
-          const image = String(ctx.previousDigest || node.data.image || '');
-          await agentGateway.sendCommand(agentId, 'docker.recreate', { id, image });
-          break;
+          // Always recreate with a name:tag — never with a raw image id (sha256:…).
+          const image = String(ctx.previousImage || node.data.image || ctx.image || '');
+          const desiredDigest = ctx.previousDigest || ctx.oldDigest
+            ? String(ctx.previousDigest || ctx.oldDigest)
+            : undefined;
+          await agentGateway.sendCommand(agentId, 'docker.recreate', {
+            id,
+            image,
+            ...(desiredDigest ? { desiredDigest } : {}),
+          });
+          await upsertStep(runId, node.id, branchId, 'success', {
+            finishedAt: new Date(),
+            detailJson: detailJson({
+              agentId,
+              containerName: id,
+              previousImage: image,
+              previousDigest: desiredDigest,
+              oldDigest: ctx.oldDigest ? String(ctx.oldDigest) : undefined,
+            }),
+          });
+          await audit({
+            actor: 'system',
+            action: 'flow_node.success',
+            entity: 'flow_node',
+            entityId: node.id,
+            flowRunId: runId,
+            payload: { type: node.type, attempts },
+          });
+          return 'success';
         }
         case 'split':
         case 'join':

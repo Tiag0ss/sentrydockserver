@@ -1,43 +1,22 @@
 'use client';
 
-import type { CSSProperties, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { tt } from '@/lib/i18n/translate';
+import {
+  IconButton,
+  IconOpen as SharedIconOpen,
+  IconRefresh,
+} from '@/components/IconActions';
 
-const iconBtn: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  width: 36,
-  height: 36,
-  borderRadius: 8,
-  border: '1px solid var(--border)',
-  background: 'transparent',
-  color: 'var(--text)',
-  cursor: 'pointer',
-  padding: 0,
-  flexShrink: 0,
-};
-
+/** @deprecated Prefer IconOpen from @/components/IconActions */
 export function IconOpen({ title }: { title: string }) {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <title>{title}</title>
-      <path d="M15 3h6v6" />
-      <path d="M10 14 21 3" />
-      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-    </svg>
-  );
+  return <SharedIconOpen />;
 }
 
+/** @deprecated Prefer IconRefresh from @/components/IconActions */
 export function IconRerun({ title }: { title: string }) {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <title>{title}</title>
-      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-      <path d="M3 3v5h5" />
-    </svg>
-  );
+  return <IconRefresh />;
 }
 
 export function ActionIconButton({
@@ -54,23 +33,14 @@ export function ActionIconButton({
   primary?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      title={title}
-      aria-label={title}
+    <IconButton
+      label={title}
+      tone={primary ? 'primary' : 'default'}
       onClick={onClick}
       disabled={disabled}
-      style={{
-        ...iconBtn,
-        borderColor: primary ? 'var(--accent)' : 'var(--border)',
-        color: primary ? 'var(--accent)' : 'var(--text)',
-        background: primary ? 'rgba(61, 214, 198, 0.1)' : 'transparent',
-        cursor: disabled ? 'wait' : 'pointer',
-        opacity: disabled ? 0.55 : 1,
-      }}
     >
       {children}
-    </button>
+    </IconButton>
   );
 }
 

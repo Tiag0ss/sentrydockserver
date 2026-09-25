@@ -6,6 +6,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 import {
   PageHeader, Button, Input, Textarea, Field, Panel, DataRow, Badge, EmptyState, Modal, Alert,
 } from '@/components/ui';
+import { IconButton, IconTrash } from '@/components/IconActions';
 
 export default function TemplatesPage() {
   const { t } = useI18n();
@@ -61,9 +62,13 @@ export default function TemplatesPage() {
               )}
               meta={<pre style={{ margin: 0, fontSize: 11, whiteSpace: 'pre-wrap', fontFamily: 'IBM Plex Mono, monospace' }}>{r.body}</pre>}
               actions={!r.builtin ? (
-                <Button variant="danger" onClick={async () => { await api(`/templates/${r.id}`, { method: 'DELETE' }); await load(); }}>
-                  {t('common.delete')}
-                </Button>
+                <IconButton
+                  label={t('common.delete')}
+                  tone="danger"
+                  onClick={async () => { await api(`/templates/${r.id}`, { method: 'DELETE' }); await load(); }}
+                >
+                  <IconTrash />
+                </IconButton>
               ) : undefined}
             />
           ))}

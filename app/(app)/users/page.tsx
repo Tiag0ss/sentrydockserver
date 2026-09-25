@@ -8,6 +8,7 @@ import Link from 'next/link';
 import {
   PageHeader, Button, Input, Select, Field, Panel, DataRow, Alert, Badge, EmptyState, Modal,
 } from '@/components/ui';
+import { IconButton, IconTrash, IconKey, IconSave, IconClose } from '@/components/IconActions';
 
 type UserRow = {
   id: string;
@@ -183,19 +184,26 @@ export default function UsersPage() {
                       onChange={(e) => setResetPassword(e.target.value)}
                       style={{ minWidth: 140 }}
                     />
-                    <Button onClick={() => { void resetPwd(u.id); }}>{t('common.save')}</Button>
-                    <Button variant="ghost" onClick={() => { setResetFor(null); setResetPassword(''); }}>{t('common.back')}</Button>
+                    <IconButton label={t('common.save')} tone="primary" onClick={() => { void resetPwd(u.id); }}>
+                      <IconSave />
+                    </IconButton>
+                    <IconButton label={t('common.back')} onClick={() => { setResetFor(null); setResetPassword(''); }}>
+                      <IconClose />
+                    </IconButton>
                   </>
                 ) : (
-                  <Button variant="ghost" onClick={() => setResetFor(u.id)}>{t('users.resetPassword')}</Button>
+                  <IconButton label={t('users.resetPassword')} onClick={() => setResetFor(u.id)}>
+                    <IconKey />
+                  </IconButton>
                 )}
-                <Button
-                  variant="danger"
+                <IconButton
+                  label={t('common.delete')}
+                  tone="danger"
                   disabled={u.id === me.id}
                   onClick={() => { void remove(u.id, u.username); }}
                 >
-                  {t('common.delete')}
-                </Button>
+                  <IconTrash />
+                </IconButton>
               </>
             )}
           />

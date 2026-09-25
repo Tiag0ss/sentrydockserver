@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { tt } from '@/lib/i18n/translate';
-import { ActionIconButton, IconOpen, IconRerun, StatusPill } from './_components/RunActionIcons';
+import { ActionIconButton, StatusPill } from './_components/RunActionIcons';
+import { IconOpen, IconRefresh } from '@/components/IconActions';
 import { PageHeader, Alert, EmptyState } from '@/components/ui';
 
 type Run = {
@@ -97,7 +98,7 @@ export default function RunsPage() {
             title={t('runs.openDetail')}
             onClick={() => router.push(`/runs/${r.id}`)}
           >
-            <IconOpen title={t('runs.openDetail')} />
+            <IconOpen />
           </ActionIconButton>
           <ActionIconButton
             title={t('runs.rerun')}
@@ -105,7 +106,7 @@ export default function RunsPage() {
             disabled={busy || (busyId !== null && !busy)}
             onClick={() => { void rerun(r.id); }}
           >
-            <IconRerun title={t('runs.rerun')} />
+            <IconRefresh />
           </ActionIconButton>
         </div>
       </article>

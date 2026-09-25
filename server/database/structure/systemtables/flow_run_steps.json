@@ -47,6 +47,12 @@
       "FieldName": "finished_at",
       "DataType": "integer",
       "NotNullable": false
+    },
+    {
+      "FieldName": "detail_json",
+      "DataType": "text",
+      "NotNullable": false,
+      "Comment": "JSON summary of step inputs/outputs (digests, container, reason, …)"
     }
   ]
 }

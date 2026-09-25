@@ -7,7 +7,8 @@ import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { tt } from '@/lib/i18n/translate';
 import type { NotificationItem } from '@/components/NotificationBell';
-import { PageHeader, Button, Panel, EmptyState } from '@/components/ui';
+import { PageHeader, Panel, EmptyState } from '@/components/ui';
+import { IconButton, IconCheck } from '@/components/IconActions';
 
 type ListResponse = { items: NotificationItem[]; unreadCount: number };
 
@@ -51,7 +52,9 @@ export default function NotificationsPage() {
         title={t('notifications.title')}
         subtitle={`${t('notifications.subtitle')}${unread > 0 ? ` · ${t('notifications.unreadCount', { count: String(unread) })}` : ''}`}
         actions={unread > 0 ? (
-          <Button variant="ghost" onClick={() => { void markAll(); }}>{t('notifications.markAllRead')}</Button>
+          <IconButton label={t('notifications.markAllRead')} onClick={() => { void markAll(); }}>
+            <IconCheck />
+          </IconButton>
         ) : undefined}
       />
 

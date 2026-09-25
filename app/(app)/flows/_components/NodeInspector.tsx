@@ -20,11 +20,32 @@ type ContainerRow = {
   name?: string;
   names: string[];
   image: string;
+  imageId?: string;
+  configImage?: string;
   state: string;
   status: string;
   composeProject?: string | null;
   composeService?: string | null;
 };
+
+function isImageIdRef(value: string | undefined | null): boolean {
+  if (!value) return false;
+  const v = String(value).trim();
+  return /^sha256:[a-f0-9]+$/i.test(v) || /^[a-f0-9]{64}$/i.test(v);
+}
+
+/** Prefer a pullable name:tag over a raw image id. */
+function preferImageName(...candidates: Array<string | undefined | null>): string {
+  for (const c of candidates) {
+    const v = c ? String(c).trim() : '';
+    if (v && !isImageIdRef(v)) return v;
+  }
+  for (const c of candidates) {
+    const v = c ? String(c).trim() : '';
+    if (v) return v;
+  }
+  return '';
+}
 
 type Props = {
   selectedNode: Node | null;
@@ -123,7 +144,7 @@ export function NodeInspector({ selectedNode, onPatch }: Props) {
       return {
         value: name,
         label: name,
-        hint: [compose, c.image, c.state || c.status].filter(Boolean).join(' · '),
+        hint: [compose, preferImageName(c.configImage, c.image), c.state || c.status].filter(Boolean).join(' · '),
       };
     }),
     [containers],
@@ -132,13 +153,28 @@ export function NodeInspector({ selectedNode, onPatch }: Props) {
   const imageOptions: SearchOption[] = useMemo(() => {
     const seen = new Set<string>();
     const opts: SearchOption[] = [];
+    const add = (value: string, hint?: string) => {
+      const v = value.trim();
+      if (!v || seen.has(v)) return;
+      // Prefer name:tag entries; still allow digests as last-resort custom values.
+      seen.add(v);
+      opts.push({
+        value: v,
+        label: v,
+        hint: isImageIdRef(v) ? (hint || 'image id') : hint,
+      });
+    };
+    // Keep the value already saved on the node visible even if the agent only returns digests.
+    const current = String(selectedNode?.data.image || '');
+    if (current) add(current, 'current');
     for (const c of containers) {
-      if (!c.image || seen.has(c.image)) continue;
-      seen.add(c.image);
-      opts.push({ value: c.image, label: c.image });
+      const name = preferImageName(c.configImage, c.image);
+      if (name) add(name, c.name || c.names?.[0]);
     }
+    // Put human tags first, raw ids last.
+    opts.sort((a, b) => Number(isImageIdRef(a.value)) - Number(isImageIdRef(b.value)));
     return opts;
-  }, [containers]);
+  }, [containers, selectedNode?.data.image]);
 
   if (!selectedNode) {
     return <div style={{ color: 'var(--muted)', fontSize: 13 }}>{t('flows.selectNode')}</div>;
@@ -275,9 +311,15 @@ export function NodeInspector({ selectedNode, onPatch }: Props) {
               || x.id === v
               || x.id.startsWith(v),
             );
+            const currentImage = String(selectedNode.data.image || '');
+            const fromContainer = preferImageName(c?.configImage, c?.image);
+            // Never replace a good name:tag with a raw sha256 from a broken container Config.Image.
+            const nextImage = fromContainer && !isImageIdRef(fromContainer)
+              ? fromContainer
+              : (currentImage && !isImageIdRef(currentImage) ? currentImage : fromContainer);
             onPatch(id, {
               containerName: v,
-              ...(c?.image ? { image: c.image } : {}),
+              ...(nextImage ? { image: nextImage } : {}),
             });
           }}
           placeholder={t('inspector.searchContainer')}

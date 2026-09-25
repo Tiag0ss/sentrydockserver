@@ -7,6 +7,7 @@ import { tt } from '@/lib/i18n/translate';
 import {
   PageHeader, Button, Input, Select, Field, Panel, DataRow, EmptyState, Modal, Alert,
 } from '@/components/ui';
+import { IconButton, IconTrash } from '@/components/IconActions';
 
 export default function SecretsPage() {
   const { t } = useI18n();
@@ -65,9 +66,13 @@ export default function SecretsPage() {
               title={r.name}
               meta={`${tt(t, 'secretTypes', r.type)} · ${r.id.slice(0, 8)}…`}
               actions={(
-                <Button variant="danger" onClick={async () => { await api(`/secrets/${r.id}`, { method: 'DELETE' }); await load(); }}>
-                  {t('secrets.delete')}
-                </Button>
+                <IconButton
+                  label={t('secrets.delete')}
+                  tone="danger"
+                  onClick={async () => { await api(`/secrets/${r.id}`, { method: 'DELETE' }); await load(); }}
+                >
+                  <IconTrash />
+                </IconButton>
               )}
             />
           ))}

@@ -137,6 +137,11 @@ apiRouter.get('/flows/:id/export', authRequired, requirePasswordOk, asyncHandler
   res.json(flowsService.exportFlow(param(req)));
 }));
 
+apiRouter.post('/flows/:id/duplicate', authRequired, requirePasswordOk, requireModify, asyncHandler(async (req, res) => {
+  const result = await flowsService.duplicateFlow(param(req), req.user!.username);
+  res.status(201).json(result);
+}));
+
 apiRouter.post('/flows/import', authRequired, requirePasswordOk, requireModify, validateBody(createFlowSchema), asyncHandler(async (req, res) => {
   const result = await flowsService.importFlow(req.body, req.user!.username);
   res.status(201).json(result);

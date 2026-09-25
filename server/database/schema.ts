@@ -95,6 +95,7 @@ export const flowRunSteps = sqliteTable('flow_run_steps', {
   lastError: text('last_error'),
   startedAt: integer('started_at', { mode: 'timestamp_ms' }),
   finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
+  detailJson: text('detail_json'),
 });
 
 export const flowRunBranches = sqliteTable('flow_run_branches', {

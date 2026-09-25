@@ -7,6 +7,9 @@ import { SearchSelect, type SearchOption } from '../flows/_components/SearchSele
 import {
   PageHeader, Button, Input, Select, Field, Tabs, Alert, EmptyState, DataRow, Panel, Modal,
 } from '@/components/ui';
+import {
+  IconButton, IconTrash, IconEdit, IconPower, IconCheck, IconDownload, IconUpload,
+} from '@/components/IconActions';
 
 type Watch = {
   id: string;
@@ -37,6 +40,8 @@ type ContainerRow = {
   name?: string;
   names?: string[];
   image: string;
+  imageId?: string;
+  configImage?: string;
   state?: string;
   status?: string;
   composeProject?: string;
@@ -59,6 +64,24 @@ const emptyPolicyForm = {
 
 function containerNameOf(c: ContainerRow): string {
   return (c.name || c.names?.[0] || c.id).replace(/^\//, '');
+}
+
+function isImageIdRef(value: string | undefined | null): boolean {
+  if (!value) return false;
+  const v = String(value).trim();
+  return /^sha256:[a-f0-9]+$/i.test(v) || /^[a-f0-9]{64}$/i.test(v);
+}
+
+function preferImageName(...candidates: Array<string | undefined | null>): string {
+  for (const c of candidates) {
+    const v = c ? String(c).trim() : '';
+    if (v && !isImageIdRef(v)) return v;
+  }
+  for (const c of candidates) {
+    const v = c ? String(c).trim() : '';
+    if (v) return v;
+  }
+  return '';
 }
 
 export default function PoliciesPage() {
@@ -143,7 +166,7 @@ export default function PoliciesPage() {
       return {
         value: name,
         label: name,
-        hint: [compose, c.image, c.state || c.status].filter(Boolean).join(' · '),
+        hint: [compose, preferImageName(c.configImage, c.image), c.state || c.status].filter(Boolean).join(' · '),
       };
     }),
     [containers],
@@ -182,7 +205,12 @@ export default function PoliciesPage() {
 
   function selectContainer(name: string) {
     const c = containers.find((x) => containerNameOf(x) === name);
-    setWatchForm((s) => ({ ...s, containerName: name, image: c?.image || s.image }));
+    const fromContainer = preferImageName(c?.configImage, c?.image);
+    setWatchForm((s) => {
+      const keep = s.image && !isImageIdRef(s.image) ? s.image : '';
+      const image = fromContainer && !isImageIdRef(fromContainer) ? fromContainer : (keep || fromContainer || s.image);
+      return { ...s, containerName: name, image };
+    });
   }
 
   function openWatchCreate() {
@@ -390,8 +418,9 @@ export default function PoliciesPage() {
               title={w.containerName}
               meta={`${w.image} · ${agentName(w.agentId)}`}
               actions={(
-                <Button
-                  variant="danger"
+                <IconButton
+                  label={t('common.delete')}
+                  tone="danger"
                   onClick={async () => {
                     if (!confirm(t('policies.deleteWatchConfirm'))) return;
                     try {
@@ -402,8 +431,8 @@ export default function PoliciesPage() {
                     }
                   }}
                 >
-                  {t('common.delete')}
-                </Button>
+                  <IconTrash />
+                </IconButton>
               )}
             />
           ))}
@@ -449,15 +478,22 @@ export default function PoliciesPage() {
               )}
               actions={(
                 <>
-                  <Button variant="ghost" onClick={() => startEdit(p)}>{t('common.edit')}</Button>
-                  <Button variant="ghost" onClick={() => { void togglePolicy(p); }}>
-                    {p.enabled ? t('policies.disable') : t('policies.enable')}
-                  </Button>
-                  <Button variant="ghost" onClick={() => { void runCheck(p.id); }}>
-                    {t('policies.checkNow')}
-                  </Button>
-                  <Button
-                    variant="danger"
+                  <IconButton label={t('common.edit')} onClick={() => startEdit(p)}>
+                    <IconEdit />
+                  </IconButton>
+                  <IconButton
+                    label={p.enabled ? t('policies.disable') : t('policies.enable')}
+                    tone={p.enabled ? 'warn' : 'primary'}
+                    onClick={() => { void togglePolicy(p); }}
+                  >
+                    <IconPower />
+                  </IconButton>
+                  <IconButton label={t('policies.checkNow')} onClick={() => { void runCheck(p.id); }}>
+                    <IconCheck />
+                  </IconButton>
+                  <IconButton
+                    label={t('common.delete')}
+                    tone="danger"
                     onClick={async () => {
                       if (!confirm(t('policies.deletePolicyConfirm', { name: p.name }))) return;
                       try {
@@ -472,8 +508,8 @@ export default function PoliciesPage() {
                       }
                     }}
                   >
-                    {t('common.delete')}
-                  </Button>
+                    <IconTrash />
+                  </IconButton>
                 </>
               )}
             />
@@ -487,12 +523,20 @@ export default function PoliciesPage() {
           <div className="sd-stack" style={{ maxWidth: 480 }}>
             <div>
               <p style={{ margin: '0 0 8px', color: 'var(--sd-muted)', fontSize: 13 }}>{t('policies.exportHint')}</p>
-              <Button variant="ghost" onClick={() => { void exportBundle(); }}>{t('policies.export')}</Button>
+              <IconButton label={t('policies.export')} onClick={() => { void exportBundle(); }}>
+                <IconDownload />
+              </IconButton>
             </div>
             <div>
               <p style={{ margin: '0 0 8px', color: 'var(--sd-muted)', fontSize: 13 }}>{t('policies.importHint')}</p>
-              <label className="sd-btn-ghost" style={{ display: 'inline-flex', cursor: 'pointer' }}>
-                {t('policies.import')}
+              <label
+                className="sd-icon-btn"
+                title={t('policies.import')}
+                aria-label={t('policies.import')}
+                data-tooltip={t('policies.import')}
+                style={{ cursor: 'pointer' }}
+              >
+                <IconUpload />
                 <input
                   type="file"
                   accept="application/json,.json"

@@ -7,6 +7,7 @@ import { tt } from '@/lib/i18n/translate';
 import {
   PageHeader, Button, Input, Select, Field, Alert, EmptyState, DataRow, Panel, Badge, Modal,
 } from '@/components/ui';
+import { IconButton, IconTrash, IconSave } from '@/components/IconActions';
 
 type Agent = {
   id: string;
@@ -103,15 +104,16 @@ export default function AgentsPage() {
             )}
             meta={`${a.transport} · ${t('agents.protocol')} ${a.protocolVersion ?? '—'} · ${a.id.slice(0, 8)}…`}
             actions={(
-              <Button
-                variant="danger"
+              <IconButton
+                label={t('agents.remove')}
+                tone="danger"
                 onClick={async () => {
                   await api(`/agents/${a.id}`, { method: 'DELETE' });
                   await load();
                 }}
               >
-                {t('agents.remove')}
-              </Button>
+                <IconTrash />
+              </IconButton>
             )}
           >
             {a.meta ? (
@@ -134,7 +136,9 @@ export default function AgentsPage() {
                 />
               </Field>
               <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-                <Button onClick={() => { void saveLabels(a.id); }}>{t('agents.saveLabels')}</Button>
+                <IconButton label={t('agents.saveLabels')} tone="primary" onClick={() => { void saveLabels(a.id); }}>
+                  <IconSave />
+                </IconButton>
               </div>
             </div>
           </DataRow>

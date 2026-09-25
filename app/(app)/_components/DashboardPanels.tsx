@@ -6,7 +6,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { tt } from '@/lib/i18n/translate';
-import { ActionIconButton, IconOpen, IconRerun, StatusPill } from '../runs/_components/RunActionIcons';
+import { ActionIconButton, StatusPill } from '../runs/_components/RunActionIcons';
+import { IconOpen, IconRefresh } from '@/components/IconActions';
 
 const HISTORY_PAGE_SIZE_KEY = 'sentrydock.dashboard.historyPageSize';
 const HISTORY_PAGE_SIZES = [10, 25, 50, 100] as const;
@@ -173,11 +174,11 @@ function RunDashRow({
       </div>
       <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
         <ActionIconButton title={t('runs.openDetail')} onClick={() => router.push(`/runs/${id}`)}>
-          <IconOpen title={t('runs.openDetail')} />
+          <IconOpen />
         </ActionIconButton>
         {onRerun && (
           <ActionIconButton title={t('runs.rerun')} primary disabled={busy} onClick={onRerun}>
-            <IconRerun title={t('runs.rerun')} />
+            <IconRefresh />
           </ActionIconButton>
         )}
       </div>

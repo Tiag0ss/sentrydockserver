@@ -40,8 +40,8 @@ export function Button({ variant = 'primary', className = '', ...props }: BtnPro
   return <button type="button" className={`${cls} ${className}`.trim()} {...props} />;
 }
 
-export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className="sd-input" {...props} />;
+export function Input({ className = '', ...props }: InputHTMLAttributes<HTMLInputElement>) {
+  return <input className={`sd-input ${className}`.trim()} {...props} />;
 }
 
 export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {

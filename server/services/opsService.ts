@@ -85,6 +85,7 @@ export function getRun(id: string) {
 
   const agentNames = new Map(agentsRepo.list().map((a) => [a.id, a.name]));
   const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
+  const runContext = run.contextJson ? JSON.parse(run.contextJson) as Record<string, unknown> : null;
 
   const steps = runsRepo.steps(run.id)
     .slice()
@@ -97,8 +98,18 @@ export function getRun(id: string) {
       const node = nodeById.get(s.nodeId);
       const nodeType = String(node?.type || node?.data?.nodeType || s.nodeId.split('-')[0] || 'node');
       const customLabel = node?.data?.label != null ? String(node.data.label) : null;
+      let detail = parseStepDetail(s.detailJson);
+      if (!detail) detail = fallbackStepDetail(nodeType, runContext);
+      if (detail?.agentId && typeof detail.agentId === 'string') {
+        detail = {
+          ...detail,
+          agentName: agentNames.get(detail.agentId) || detail.agentId.slice(0, 8),
+        };
+      }
       return {
         ...s,
+        detailJson: undefined,
+        detail,
         nodeType,
         label: customLabel && customLabel.trim() ? customLabel : nodeType,
         lastError: humanizeAgentIds(s.lastError, agentNames),
@@ -126,7 +137,7 @@ export function getRun(id: string) {
 
   return {
     ...run,
-    context: run.contextJson ? JSON.parse(run.contextJson) : null,
+    context: runContext,
     steps,
     branches,
     flow: flow
@@ -134,6 +145,50 @@ export function getRun(id: string) {
       : null,
     nodeStatuses: statusByNode,
   };
+}
+
+function parseStepDetail(raw: string | null | undefined): Record<string, unknown> | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Older runs have no detail_json — reconstruct useful fields from run context. */
+function fallbackStepDetail(
+  nodeType: string,
+  ctx: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  if (!ctx) return null;
+  const base: Record<string, unknown> = {};
+  if (ctx.image) base.image = ctx.image;
+  if (ctx.containerName) base.containerName = ctx.containerName;
+  if (ctx.agentId) base.agentId = ctx.agentId;
+  if (ctx.oldDigest) base.oldDigest = ctx.oldDigest;
+  if (ctx.newDigest) base.newDigest = ctx.newDigest;
+  if (ctx.previousDigest) base.previousDigest = ctx.previousDigest;
+  if (ctx.updateAvailable != null) {
+    base.updateAvailable = Boolean(ctx.updateAvailable);
+    base.reason = ctx.updateAvailable ? 'digest_mismatch' : 'up_to_date';
+  }
+  if (Object.keys(base).length === 0) return null;
+
+  const relevant = new Set([
+    'check_image_update',
+    'pull_image',
+    'recreate_container',
+    'wait_approval',
+    'condition',
+    'wait_healthy',
+    'rollback',
+  ]);
+  if (!relevant.has(nodeType)) return null;
+  return base;
 }
 
 function humanizeAgentIds(message: string | null, agentNames: Map<string, string>): string | null {
@@ -204,7 +259,8 @@ export async function rerunRun(id: string, actor: string, opts?: { dryRun?: bool
 
   const prevCtx = run.contextJson ? JSON.parse(run.contextJson) as Record<string, unknown> : {};
   const context = contextForRerun(prevCtx);
-  const dryRun = opts?.dryRun !== undefined ? Boolean(opts.dryRun) : Boolean(run.dryRun);
+  // Re-run is a real execution by default — do not inherit dry-run from the previous run.
+  const dryRun = opts?.dryRun !== undefined ? Boolean(opts.dryRun) : false;
 
   try {
     const runId = await startFlowRun({

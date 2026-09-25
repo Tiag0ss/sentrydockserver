@@ -20,8 +20,6 @@ const NAV_KEYS = [
   { href: '/webhooks', key: 'nav.webhooks' },
   { href: '/templates', key: 'nav.templates' },
   { href: '/logs', key: 'nav.logs' },
-  { href: '/users', key: 'nav.users' },
-  { href: '/settings', key: 'nav.settings' },
 ] as const;
 
 export function AppShell({ children }: { children: React.ReactNode }) {
