@@ -6,7 +6,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 import { tt } from '@/lib/i18n/translate';
 import Link from 'next/link';
 import {
-  PageHeader, Button, Input, Select, Field, Panel, DataRow, Alert, Badge, EmptyState, Modal,
+  PageHeader, Button, Input, Select, Field, Panel, Alert, EmptyState, Modal,
 } from '@/components/ui';
 import { IconButton, IconTrash, IconKey, IconSave, IconClose } from '@/components/IconActions';
 
@@ -118,7 +118,7 @@ export default function UsersPage() {
 
   if (me.role !== 'modify') {
     return (
-      <div className="sd-page">
+      <div className="sd-page sd-page-compact">
         <PageHeader title={t('users.title')} subtitle={t('users.monitorHint')} />
         <Link href="/change-password" className="sd-btn-ghost" style={{ width: 'fit-content' }}>
           {t('users.changeMyPassword')}
@@ -128,7 +128,7 @@ export default function UsersPage() {
   }
 
   return (
-    <div className="sd-page">
+    <div className="sd-page sd-page-compact">
       <PageHeader
         title={t('users.title')}
         subtitle={t('users.subtitle')}
@@ -137,78 +137,83 @@ export default function UsersPage() {
       {error ? <Alert>{error}</Alert> : null}
       {msg ? <Alert tone="ok">{msg}</Alert> : null}
 
-      <Panel>
-        <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>{t('users.yourAccount')}</h2>
-        <div className="sd-actions" style={{ alignItems: 'center' }}>
-          <strong>{me.username}</strong>
-          <Badge tone="accent">{tt(t, 'roles', me.role)}</Badge>
-          <Link href="/change-password" className="sd-btn-ghost">{t('users.changeMyPassword')}</Link>
+      <Panel className="sd-entity-card">
+        <div className="sd-section-head" style={{ marginBottom: 0 }}>
+          <div>
+            <h2>{t('users.yourAccount')}</h2>
+            <p>{me.username} · {tt(t, 'roles', me.role)}</p>
+          </div>
+          <Link href="/change-password" className="sd-btn-ghost sd-btn-sm">{t('users.changeMyPassword')}</Link>
         </div>
       </Panel>
 
-      <Panel>
-        <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>{t('users.list')}</h2>
-        {users.length === 0 ? <EmptyState>—</EmptyState> : null}
-        {users.map((u) => (
-          <DataRow
-            key={u.id}
-            title={(
-              <>
-                {u.username}
-                {u.id === me.id ? <span style={{ color: 'var(--sd-muted)', fontWeight: 400 }}> ({t('users.you')})</span> : null}
-              </>
-            )}
-            meta={(
-              <>
-                {formatDate(u.createdAt)}
-                {u.mustChangePassword ? ` · ${t('users.mustChange')}` : ''}
-              </>
-            )}
-            actions={(
-              <>
-                <Select
-                  value={u.role}
-                  disabled={u.id === me.id}
-                  onChange={(e) => { void setRole(u.id, e.target.value); }}
-                  style={{ width: 140 }}
-                >
-                  <option value="modify">{t('users.roleModify')}</option>
-                  <option value="monitor">{t('users.roleMonitor')}</option>
-                </Select>
-                {resetFor === u.id ? (
-                  <>
-                    <Input
-                      type="password"
-                      placeholder={t('users.newPassword')}
-                      value={resetPassword}
-                      onChange={(e) => setResetPassword(e.target.value)}
-                      style={{ minWidth: 140 }}
-                    />
-                    <IconButton label={t('common.save')} tone="primary" onClick={() => { void resetPwd(u.id); }}>
-                      <IconSave />
+      <div className="sd-section-head">
+        <h2>{t('users.list')}</h2>
+      </div>
+
+      {users.length === 0 ? <EmptyState>—</EmptyState> : (
+        <div className="sd-entity-list">
+          {users.map((u) => (
+            <Panel key={u.id} className="sd-entity-card">
+              <div className="sd-entity-item">
+                <div className="sd-entity-main">
+                  <div className="sd-entity-top">
+                    <strong className="sd-entity-name">{u.username}</strong>
+                    {u.id === me.id ? <span className="sd-entity-muted">({t('users.you')})</span> : null}
+                    {u.mustChangePassword ? (
+                      <span className="sd-entity-badge" style={{ color: 'var(--sd-warn)' }}>{t('users.mustChange')}</span>
+                    ) : null}
+                  </div>
+                  <div className="sd-entity-meta">{formatDate(u.createdAt)}</div>
+                </div>
+                <div className="sd-entity-actions">
+                  <Select
+                    value={u.role}
+                    disabled={u.id === me.id}
+                    onChange={(e) => { void setRole(u.id, e.target.value); }}
+                    className="sd-select"
+                    title={tt(t, 'roles', u.role)}
+                    style={{ width: 110, minHeight: 32, padding: '4px 8px', fontSize: 12 }}
+                  >
+                    <option value="modify">{tt(t, 'roles', 'modify')}</option>
+                    <option value="monitor">{tt(t, 'roles', 'monitor')}</option>
+                  </Select>
+                  {resetFor === u.id ? (
+                    <>
+                      <Input
+                        type="password"
+                        placeholder={t('users.newPassword')}
+                        value={resetPassword}
+                        onChange={(e) => setResetPassword(e.target.value)}
+                        className="sd-input sd-input-sm"
+                        style={{ width: 140 }}
+                      />
+                      <IconButton label={t('common.save')} tone="primary" onClick={() => { void resetPwd(u.id); }}>
+                        <IconSave />
+                      </IconButton>
+                      <IconButton label={t('common.back')} onClick={() => { setResetFor(null); setResetPassword(''); }}>
+                        <IconClose />
+                      </IconButton>
+                    </>
+                  ) : (
+                    <IconButton label={t('users.resetPassword')} onClick={() => setResetFor(u.id)}>
+                      <IconKey />
                     </IconButton>
-                    <IconButton label={t('common.back')} onClick={() => { setResetFor(null); setResetPassword(''); }}>
-                      <IconClose />
-                    </IconButton>
-                  </>
-                ) : (
-                  <IconButton label={t('users.resetPassword')} onClick={() => setResetFor(u.id)}>
-                    <IconKey />
+                  )}
+                  <IconButton
+                    label={t('common.delete')}
+                    tone="danger"
+                    disabled={u.id === me.id}
+                    onClick={() => { void remove(u.id, u.username); }}
+                  >
+                    <IconTrash />
                   </IconButton>
-                )}
-                <IconButton
-                  label={t('common.delete')}
-                  tone="danger"
-                  disabled={u.id === me.id}
-                  onClick={() => { void remove(u.id, u.username); }}
-                >
-                  <IconTrash />
-                </IconButton>
-              </>
-            )}
-          />
-        ))}
-      </Panel>
+                </div>
+              </div>
+            </Panel>
+          ))}
+        </div>
+      )}
 
       <Modal
         open={open}

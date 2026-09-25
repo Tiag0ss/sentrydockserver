@@ -34,7 +34,7 @@ export default function DashboardPage() {
   if (!data) return <p>{t('dashboard.loading')}</p>;
 
   return (
-    <div className="sd-page">
+    <div className="sd-page sd-page-compact">
       <PageHeader title={t('dashboard.title')} subtitle={t('dashboard.subtitle')} />
       <DashboardPanels data={data} onReload={() => { void load(); }} />
     </div>

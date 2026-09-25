@@ -5,7 +5,7 @@ import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { tt } from '@/lib/i18n/translate';
 import {
-  PageHeader, Button, Input, Select, Field, Alert, EmptyState, DataRow, Panel, Badge, Modal,
+  PageHeader, Button, Input, Select, Field, Alert, EmptyState, Panel, Modal,
 } from '@/components/ui';
 import { IconButton, IconTrash, IconSave } from '@/components/IconActions';
 
@@ -80,7 +80,7 @@ export default function AgentsPage() {
   }
 
   return (
-    <div className="sd-page">
+    <div className="sd-page sd-page-compact">
       <PageHeader
         title={t('agents.title')}
         actions={<Button onClick={openCreate}>{t('agents.create')}</Button>}
@@ -91,59 +91,68 @@ export default function AgentsPage() {
       ) : null}
 
       {agents.length === 0 ? <EmptyState>{t('dashboard.noAgents')}</EmptyState> : null}
-      {agents.map((a) => (
-        <Panel key={a.id}>
-          <DataRow
-            title={(
-              <>
-                {a.name}{' '}
-                <Badge tone={a.online ? 'ok' : undefined}>
-                  {a.online ? t('agents.online') : (a.status ? tt(t, 'status', a.status) : t('agents.offline'))}
-                </Badge>
-              </>
-            )}
-            meta={`${a.transport} · ${t('agents.protocol')} ${a.protocolVersion ?? '—'} · ${a.id.slice(0, 8)}…`}
-            actions={(
-              <IconButton
-                label={t('agents.remove')}
-                tone="danger"
-                onClick={async () => {
-                  await api(`/agents/${a.id}`, { method: 'DELETE' });
-                  await load();
-                }}
-              >
-                <IconTrash />
-              </IconButton>
-            )}
-          >
-            {a.meta ? (
-              <div className="sd-row-meta" style={{ marginTop: 6 }}>
-                {[
-                  a.meta.containers != null ? `${a.meta.containers} containers` : null,
-                  a.meta.danglingImages != null ? `${a.meta.danglingImages} dangling` : null,
-                  a.meta.diskUsedBytes != null
-                    ? `disk ${(a.meta.diskUsedBytes / (1024 ** 3)).toFixed(1)} GiB`
-                    : null,
-                ].filter(Boolean).join(' · ')}
-              </div>
-            ) : null}
-            <div className="sd-form-row" style={{ marginTop: 10 }}>
-              <Field label={t('agents.labels')}>
-                <Input
-                  placeholder={t('agents.labelsPlaceholder')}
-                  value={labelDraft[a.id] || ''}
-                  onChange={(e) => setLabelDraft((s) => ({ ...s, [a.id]: e.target.value }))}
-                />
-              </Field>
-              <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-                <IconButton label={t('agents.saveLabels')} tone="primary" onClick={() => { void saveLabels(a.id); }}>
-                  <IconSave />
-                </IconButton>
-              </div>
-            </div>
-          </DataRow>
-        </Panel>
-      ))}
+
+      {agents.length > 0 ? (
+        <div className="sd-entity-list">
+          {agents.map((a) => {
+            const metaBits = [
+              a.transport,
+              `${t('agents.protocol')} ${a.protocolVersion ?? '—'}`,
+              `${a.id.slice(0, 8)}…`,
+              a.meta?.containers != null ? `${a.meta.containers} containers` : null,
+              a.meta?.danglingImages != null ? `${a.meta.danglingImages} dangling` : null,
+              a.meta?.diskUsedBytes != null
+                ? `disk ${(a.meta.diskUsedBytes / (1024 ** 3)).toFixed(1)} GiB`
+                : null,
+            ].filter(Boolean);
+            return (
+              <Panel key={a.id} className="sd-entity-card">
+                <div className="sd-entity-item">
+                  <div className="sd-entity-main">
+                    <div className="sd-entity-top">
+                      <strong className="sd-entity-name">{a.name}</strong>
+                      <span
+                        className="sd-entity-status"
+                        style={{ color: a.online ? '#3dd68c' : 'var(--sd-muted)' }}
+                      >
+                        {a.online ? t('agents.online') : (a.status ? tt(t, 'status', a.status) : t('agents.offline'))}
+                      </span>
+                    </div>
+                    <div className="sd-entity-meta">{metaBits.join(' · ')}</div>
+                    <div className="sd-entity-extra sd-form-row" style={{ marginTop: 8 }}>
+                      <Field label={t('agents.labels')}>
+                        <Input
+                          className="sd-input sd-input-sm"
+                          placeholder={t('agents.labelsPlaceholder')}
+                          value={labelDraft[a.id] || ''}
+                          onChange={(e) => setLabelDraft((s) => ({ ...s, [a.id]: e.target.value }))}
+                        />
+                      </Field>
+                      <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                        <IconButton label={t('agents.saveLabels')} tone="primary" onClick={() => { void saveLabels(a.id); }}>
+                          <IconSave />
+                        </IconButton>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="sd-entity-actions">
+                    <IconButton
+                      label={t('agents.remove')}
+                      tone="danger"
+                      onClick={async () => {
+                        await api(`/agents/${a.id}`, { method: 'DELETE' });
+                        await load();
+                      }}
+                    >
+                      <IconTrash />
+                    </IconButton>
+                  </div>
+                </div>
+              </Panel>
+            );
+          })}
+        </div>
+      ) : null}
 
       <Modal
         open={open}

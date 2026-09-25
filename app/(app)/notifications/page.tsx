@@ -7,7 +7,7 @@ import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { tt } from '@/lib/i18n/translate';
 import type { NotificationItem } from '@/components/NotificationBell';
-import { PageHeader, Panel, EmptyState } from '@/components/ui';
+import { PageHeader, Panel, EmptyState, Button } from '@/components/ui';
 import { IconButton, IconCheck } from '@/components/IconActions';
 
 type ListResponse = { items: NotificationItem[]; unreadCount: number };
@@ -47,70 +47,67 @@ export default function NotificationsPage() {
   }
 
   return (
-    <div className="sd-page">
+    <div className="sd-page sd-page-compact">
       <PageHeader
         title={t('notifications.title')}
         subtitle={`${t('notifications.subtitle')}${unread > 0 ? ` · ${t('notifications.unreadCount', { count: String(unread) })}` : ''}`}
         actions={unread > 0 ? (
-          <IconButton label={t('notifications.markAllRead')} onClick={() => { void markAll(); }}>
-            <IconCheck />
-          </IconButton>
+          <Button variant="ghost" onClick={() => { void markAll(); }}>
+            {t('notifications.markAllRead')}
+          </Button>
         ) : undefined}
       />
 
-      {items.length === 0 ? <EmptyState>{t('notifications.empty')}</EmptyState> : null}
-
-      {items.map((n) => (
-        <Panel
-          key={n.id}
-          className=""
-          // highlight unread via inline
-        >
-          <div
-            style={{
-              margin: -16,
-              padding: 14,
-              borderRadius: 12,
-              background: n.readAt ? 'transparent' : 'color-mix(in srgb, var(--sd-accent) 8%, transparent)',
-            }}
-          >
-            <div style={{ display: 'flex', gap: 10 }}>
-              <span style={{
-                width: 10,
-                height: 10,
-                borderRadius: 4,
-                background: levelColor(n.level),
-                marginTop: 5,
-                flexShrink: 0,
-              }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                  {n.message}
+      {items.length === 0 ? <EmptyState>{t('notifications.empty')}</EmptyState> : (
+        <div className="sd-entity-list">
+          {items.map((n) => (
+            <Panel
+              key={n.id}
+              className={`sd-entity-card${n.readAt ? '' : ' sd-entity-card-unread'}`}
+            >
+              <div className="sd-entity-item">
+                <span
+                  className="sd-entity-dot"
+                  style={{ background: levelColor(n.level) }}
+                  aria-hidden
+                />
+                <div className="sd-entity-main">
+                  <div className="sd-entity-top">
+                    <strong className="sd-entity-name" style={{ fontWeight: n.readAt ? 500 : 600 }}>
+                      {n.message}
+                    </strong>
+                  </div>
+                  <div className="sd-entity-meta sd-entity-meta-wrap">
+                    {formatDate(n.ts)}
+                    {' · '}
+                    <span style={{ color: levelColor(n.level), fontWeight: 600, textTransform: 'uppercase' }}>
+                      {tt(t, 'notifyLevel', n.level)}
+                    </span>
+                    {n.flowName ? <> · {n.flowName}</> : null}
+                    {n.containerName ? <> · {n.containerName}</> : null}
+                    {n.image ? <> · {n.image}</> : null}
+                    {n.flowRunId ? (
+                      <>
+                        {' · '}
+                        <Link href={`/runs/${n.flowRunId}`} className="sd-entity-link">
+                          {t('notifications.openRun')}
+                        </Link>
+                      </>
+                    ) : null}
+                  </div>
                 </div>
-                <div style={{ color: 'var(--sd-muted)', fontSize: 12, marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  <span>{formatDate(n.ts)}</span>
-                  <span style={{ textTransform: 'uppercase', color: levelColor(n.level), fontWeight: 600 }}>
-                    {tt(t, 'notifyLevel', n.level)}
-                  </span>
-                  {n.flowName ? <span>{n.flowName}</span> : null}
-                  {n.containerName ? <span>{n.containerName}</span> : null}
-                  {n.image ? <span>{n.image}</span> : null}
-                  {n.flowRunId ? <Link href={`/runs/${n.flowRunId}`}>{t('notifications.openRun')}</Link> : null}
+                <div className="sd-entity-actions">
                   {!n.readAt ? (
-                    <button
-                      type="button"
-                      onClick={() => { void markRead(n.id); }}
-                      style={{ background: 'none', border: 'none', color: 'var(--sd-accent)', cursor: 'pointer', padding: 0, fontSize: 12 }}
-                    >
-                      {t('notifications.markRead')}
-                    </button>
+                    <IconButton label={t('notifications.markRead')} onClick={() => { void markRead(n.id); }}>
+                      <IconCheck />
+                    </IconButton>
                   ) : null}
                 </div>
               </div>
-            </div>
-          </div>
-        </Panel>
-      ))}
+            </Panel>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

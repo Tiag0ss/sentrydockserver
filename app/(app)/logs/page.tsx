@@ -12,20 +12,30 @@ export default function LogsPage() {
     void api<typeof logs>('/logs?limit=200').then(setLogs);
   }, []);
   return (
-    <div className="sd-page">
+    <div className="sd-page sd-page-compact">
       <PageHeader title={t('logs.title')} />
-      <Panel>
-        {logs.length === 0 ? <EmptyState>—</EmptyState> : null}
-        <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 12 }}>
+      {logs.length === 0 ? <EmptyState>—</EmptyState> : (
+        <div className="sd-entity-list">
           {logs.map((l) => (
-            <div key={l.id} style={{ borderBottom: '1px solid var(--sd-border)', padding: '8px 0' }}>
-              <span style={{ color: 'var(--sd-muted)' }}>{formatDate(l.ts)}</span>{' '}
-              <span style={{ color: 'var(--sd-accent)' }}>{l.actor}</span> {l.action}
-              {l.flowRunId ? <span style={{ color: 'var(--sd-muted)' }}> run={l.flowRunId.slice(0, 8)}</span> : null}
-            </div>
+            <Panel key={l.id} className="sd-entity-card">
+              <div className="sd-entity-item">
+                <div className="sd-entity-main">
+                  <div className="sd-entity-top">
+                    <strong className="sd-entity-name" style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '0.8rem' }}>
+                      {l.action}
+                    </strong>
+                    <span className="sd-entity-badge" style={{ color: 'var(--sd-accent)' }}>{l.actor}</span>
+                  </div>
+                  <div className="sd-entity-meta">
+                    {formatDate(l.ts)}
+                    {l.flowRunId ? ` · run ${l.flowRunId.slice(0, 8)}…` : ''}
+                  </div>
+                </div>
+              </div>
+            </Panel>
           ))}
         </div>
-      </Panel>
+      )}
     </div>
   );
 }

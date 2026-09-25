@@ -1,22 +1,13 @@
 'use client';
 
 import Link from 'next/link';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { tt } from '@/lib/i18n/translate';
-import { ActionIconButton, StatusPill } from '../runs/_components/RunActionIcons';
-import { IconOpen, IconRefresh } from '@/components/IconActions';
-
-const HISTORY_PAGE_SIZE_KEY = 'sentrydock.dashboard.historyPageSize';
-const HISTORY_PAGE_SIZES = [10, 25, 50, 100] as const;
-
-function readHistoryPageSize(): number {
-  if (typeof window === 'undefined') return 10;
-  const raw = Number(window.localStorage.getItem(HISTORY_PAGE_SIZE_KEY));
-  return (HISTORY_PAGE_SIZES as readonly number[]).includes(raw) ? raw : 10;
-}
+import { Panel, Button } from '@/components/ui';
+import { IconButton, IconOpen, IconRefresh } from '@/components/IconActions';
 
 export type DashboardData = {
   activeRuns: Array<{
@@ -89,100 +80,64 @@ function humanStepLabel(
   return type.replace(/_/g, ' ');
 }
 
-export function Section({
-  title,
-  children,
-  action,
-  wide,
-}: {
-  title: string;
-  children: React.ReactNode;
-  action?: React.ReactNode;
-  wide?: boolean;
-}) {
-  return (
-    <section
-      style={{
-        background: 'var(--sd-panel)',
-        border: '1px solid var(--sd-border)',
-        borderRadius: 12,
-        padding: 16,
-        boxShadow: 'var(--sd-shadow)',
-        gridColumn: wide ? '1 / -1' : undefined,
-      }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-        <h2 style={{ margin: 0, fontSize: 16 }}>{title}</h2>
-        {action}
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{children}</div>
-    </section>
-  );
+function runStatusColor(status: string): string {
+  if (status === 'success') return '#3dd68c';
+  if (status === 'failed' || status === 'aborted' || status === 'rejected') return 'var(--sd-danger)';
+  if (status === 'running') return 'var(--sd-accent)';
+  if (status === 'waiting_approval' || status === 'awaiting_user' || status === 'interrupted') return 'var(--sd-warn)';
+  return 'var(--sd-muted)';
 }
 
-export function Empty({ children }: { children: React.ReactNode }) {
-  return <div style={{ color: 'var(--muted)', fontSize: 14 }}>{children}</div>;
+function formatRelative(
+  value: string | Date | null | undefined,
+  t: (key: string, vars?: Record<string, string | number>) => string,
+): string {
+  if (!value) return '—';
+  const ts = typeof value === 'string' ? Date.parse(value) : value.getTime();
+  if (Number.isNaN(ts)) return '—';
+  const diffSec = Math.round((ts - Date.now()) / 1000);
+  const abs = Math.abs(diffSec);
+  const past = diffSec < 0;
+
+  let unit: 'second' | 'minute' | 'hour' | 'day';
+  let n: number;
+  if (abs < 60) {
+    unit = 'second';
+    n = abs;
+  } else if (abs < 3600) {
+    unit = 'minute';
+    n = Math.round(abs / 60);
+  } else if (abs < 86400) {
+    unit = 'hour';
+    n = Math.round(abs / 3600);
+  } else {
+    unit = 'day';
+    n = Math.round(abs / 86400);
+  }
+
+  const key = past
+    ? `dashboard.relPast_${unit}`
+    : `dashboard.relFuture_${unit}`;
+  return t(key, { n });
 }
 
-export function ApproveButton({ id, onDone }: { id: string; onDone: () => void }) {
+function diskPct(inv: { diskUsedBytes?: number | null; diskTotalBytes?: number | null } | null | undefined): number | null {
+  if (!inv?.diskUsedBytes || !inv.diskTotalBytes || inv.diskTotalBytes <= 0) return null;
+  return Math.min(100, Math.round((inv.diskUsedBytes / inv.diskTotalBytes) * 100));
+}
+
+function ApproveButton({ id, onDone }: { id: string; onDone: () => void }) {
   const { t } = useI18n();
   return (
-    <button
-      type="button"
+    <Button
+      className="sd-btn-sm"
       onClick={async () => {
         await api(`/update-events/${id}/approve`, { method: 'POST', body: '{}' });
         onDone();
       }}
-      style={{ background: 'var(--accent)', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontWeight: 600 }}
     >
       {t('dashboard.approve')}
-    </button>
-  );
-}
-
-function RunDashRow({
-  id,
-  flowName,
-  status,
-  meta,
-  onRerun,
-  busy,
-}: {
-  id: string;
-  flowName: string;
-  status: string;
-  meta: string;
-  onRerun?: () => void;
-  busy?: boolean;
-}) {
-  const { t } = useI18n();
-  const router = useRouter();
-  return (
-    <div style={{
-      display: 'flex',
-      gap: 12,
-      alignItems: 'center',
-      padding: '10px 0',
-      borderBottom: '1px solid var(--border)',
-    }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 2 }}>
-          <strong style={{ fontSize: 14 }}>{flowName}</strong>
-          <StatusPill status={status} />
-        </div>
-        <div style={{ color: 'var(--muted)', fontSize: 12 }}>{meta}</div>
-      </div>
-      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-        <ActionIconButton title={t('runs.openDetail')} onClick={() => router.push(`/runs/${id}`)}>
-          <IconOpen />
-        </ActionIconButton>
-        {onRerun && (
-          <ActionIconButton title={t('runs.rerun')} primary disabled={busy} onClick={onRerun}>
-            <IconRefresh />
-          </ActionIconButton>
-        )}
-      </div>
-    </div>
+    </Button>
   );
 }
 
@@ -191,32 +146,16 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState('');
-  const [pageSize, setPageSize] = useState(10);
-  const [page, setPage] = useState(0);
 
-  useEffect(() => {
-    setPageSize(readHistoryPageSize());
-  }, []);
+  const needsAttention = data.attention.length > 0 || data.pendingUpdates.length > 0;
+  const upcoming = data.upcomingPolicies.slice(0, 8);
 
-  useEffect(() => {
-    window.localStorage.setItem(HISTORY_PAGE_SIZE_KEY, String(pageSize));
-  }, [pageSize]);
-
-  const historyTotal = data.history.length;
-  const pageCount = Math.max(1, Math.ceil(historyTotal / pageSize) || 1);
-  const safePage = Math.min(page, pageCount - 1);
-
-  useEffect(() => {
-    if (page !== safePage) setPage(safePage);
-  }, [page, safePage]);
-
-  const historySlice = useMemo(() => {
-    const start = safePage * pageSize;
-    return data.history.slice(start, start + pageSize);
-  }, [data.history, safePage, pageSize]);
-
-  const showingFrom = historyTotal === 0 ? 0 : safePage * pageSize + 1;
-  const showingTo = Math.min((safePage + 1) * pageSize, historyTotal);
+  const recentFailures = useMemo(
+    () => data.history
+      .filter((r) => r.status === 'failed' || r.status === 'aborted' || r.status === 'rejected')
+      .slice(0, 5),
+    [data.history],
+  );
 
   async function rerun(runId: string) {
     setBusyId(runId);
@@ -232,213 +171,240 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: 16 }}>
-      {error && <p style={{ color: 'var(--sd-danger)', margin: 0, gridColumn: '1 / -1' }}>{error}</p>}
+    <>
+      {error ? <p className="sd-dash-error">{error}</p> : null}
 
-      <Section
-        title={t('dashboard.attention')}
-        action={<Link href="/runs" style={{ fontSize: 13, color: 'var(--sd-muted)' }}>{t('dashboard.viewRuns')}</Link>}
-      >
-        {data.attention.length === 0 && data.pendingUpdates.length === 0 && <Empty>{t('dashboard.allOk')}</Empty>}
-        {data.pendingUpdates.map((u) => (
-          <div key={u.id} style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-            <span style={{ flex: 1 }}>{t('dashboard.update')}: {u.image}</span>
-            <ApproveButton id={u.id} onDone={onReload} />
-          </div>
-        ))}
-        {data.attention.map((a) => {
-          const step = humanStepLabel(t, a.currentNodeType, a.currentNodeId);
-          return (
-            <RunDashRow
-              key={a.id}
-              id={a.id}
-              flowName={a.flowName || t('runs.runFallback', { id: a.id.slice(0, 8) })}
-              status={a.status}
-              meta={[
-                t('dashboard.needsAction'),
-                step ? `${t('dashboard.step')}: ${step}` : null,
-                a.context?.containerName,
-              ].filter(Boolean).join(' · ')}
-            />
-          );
-        })}
-      </Section>
-
-      <Section
-        title={t('dashboard.runningNow')}
-        action={<Link href="/runs" style={{ fontSize: 13, color: 'var(--muted)' }}>{t('dashboard.viewRuns')}</Link>}
-      >
-        {data.activeRuns.length === 0 && <Empty>{t('dashboard.noRunning')}</Empty>}
-        {data.activeRuns.map((r) => {
-          const step = humanStepLabel(t, r.currentNodeType, r.currentNodeId);
-          return (
-            <RunDashRow
-              key={r.id}
-              id={r.id}
-              flowName={r.flowName}
-              status={r.status}
-              meta={[
-                r.triggerSource ? tt(t, 'trigger', r.triggerSource) : null,
-                formatDate(r.startedAt),
-                step ? `${t('dashboard.step')}: ${step}` : null,
-                r.context?.containerName,
-              ].filter(Boolean).join(' · ')}
-              busy={busyId === r.id}
-              onRerun={() => { void rerun(r.id); }}
-            />
-          );
-        })}
-      </Section>
-
-      <Section title={t('dashboard.upcoming')}>
-        {data.upcomingPolicies.length === 0 && <Empty>{t('dashboard.noPolicies')}</Empty>}
-        {data.upcomingPolicies.map((p) => (
-          <div key={p.id} style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-            <strong>{p.name}</strong>
-            <span style={{ color: 'var(--muted)', fontSize: 13 }}>{p.cron} ({p.timezone})</span>
-            <span style={{ marginLeft: 'auto', fontSize: 13 }}>{formatDate(p.nextRunAt)}</span>
-          </div>
-        ))}
-      </Section>
-
-      <Section
-        title={t('dashboard.inventory')}
-        action={<Link href="/agents" style={{ fontSize: 13, color: 'var(--muted)' }}>{t('dashboard.viewAgents')}</Link>}
-      >
-        {(data.inventoryAlerts?.length || 0) === 0 && data.agents.length === 0 && (
-          <Empty>{t('dashboard.noAgents')}</Empty>
-        )}
-        {(data.inventoryAlerts?.length || 0) === 0 && data.agents.length > 0 && (
-          <Empty>{t('dashboard.noInventoryAlerts')}</Empty>
-        )}
-        {(data.inventoryAlerts || []).map((a) => (
-          <div key={`${a.agentId}-${a.kind}`} style={{ padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: 14 }}>
-            <strong>{a.agentName}</strong>
-            <span style={{ color: 'var(--warn)', marginLeft: 8 }}>{a.message}</span>
-          </div>
-        ))}
-        {data.agents.map((a) => {
-          const inv = a.inventory;
-          if (!inv) return null;
-          const parts = [
-            inv.containers != null ? `${inv.containers} ${t('dashboard.containersCount')}` : null,
-            inv.danglingImages != null ? `${inv.danglingImages} ${t('dashboard.danglingImages')}` : null,
-            inv.diskUsedBytes != null && inv.diskTotalBytes
-              ? `${t('dashboard.diskUsage')} ${Math.round((inv.diskUsedBytes / inv.diskTotalBytes) * 100)}%`
-              : inv.diskUsedBytes != null
-                ? `${t('dashboard.diskUsage')} ${(inv.diskUsedBytes / (1024 ** 3)).toFixed(1)} GiB`
-                : null,
-            a.labels?.length ? a.labels.join(', ') : null,
-          ].filter(Boolean);
-          if (!parts.length) return null;
-          return (
-            <div key={a.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: 13, color: 'var(--muted)' }}>
-              <strong style={{ color: 'var(--text)' }}>{a.name}</strong>
-              {a.online ? '' : ` · ${tt(t, 'status', a.status || 'offline')}`}
-              {' · '}
-              {parts.join(' · ')}
-            </div>
-          );
-        })}
-      </Section>
-
-      <Section
-        wide
-        title={t('dashboard.recentHistory')}
-        action={(
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--sd-muted)' }}>
-              {t('dashboard.historyPageSize')}
-              <select
-                value={pageSize}
-                onChange={(e) => {
-                  setPageSize(Number(e.target.value));
-                  setPage(0);
-                }}
-                className="sd-select"
-                style={{ width: 'auto', minHeight: 32, padding: '4px 8px', fontSize: 13 }}
-              >
-                {HISTORY_PAGE_SIZES.map((n) => (
-                  <option key={n} value={n}>{n}</option>
-                ))}
-              </select>
-            </label>
-            <Link href="/runs" style={{ fontSize: 13, color: 'var(--muted)' }}>{t('dashboard.viewRuns')}</Link>
-          </div>
-        )}
-      >
-        {historyTotal === 0 && <Empty>{t('runs.emptyHistory')}</Empty>}
-        {historySlice.map((r) => (
-          <RunDashRow
-            key={r.id}
-            id={r.id}
-            flowName={r.flowName}
-            status={r.status}
-            meta={[
-              r.triggerSource ? tt(t, 'trigger', r.triggerSource) : null,
-              formatDate(r.finishedAt || r.startedAt || null),
-              r.context?.containerName,
-            ].filter(Boolean).join(' · ')}
-            busy={busyId === r.id}
-            onRerun={() => { void rerun(r.id); }}
-          />
-        ))}
-        {historyTotal > 0 && (
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-            flexWrap: 'wrap',
-            paddingTop: 8,
-            marginTop: 4,
-          }}
-          >
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-              {t('dashboard.historyShowing', { from: showingFrom, to: showingTo, total: historyTotal })}
-            </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <button
-                type="button"
-                disabled={safePage <= 0}
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
-                style={{
-                  background: 'transparent',
-                  border: '1px solid var(--border)',
-                  borderRadius: 6,
-                  padding: '4px 10px',
-                  cursor: safePage <= 0 ? 'default' : 'pointer',
-                  opacity: safePage <= 0 ? 0.4 : 1,
-                  color: 'inherit',
-                  fontSize: 13,
-                }}
-              >
-                {t('dashboard.historyPrev')}
-              </button>
-              <span style={{ fontSize: 12, color: 'var(--muted)', minWidth: 90, textAlign: 'center' }}>
-                {t('dashboard.historyPage', { page: safePage + 1, total: pageCount })}
-              </span>
-              <button
-                type="button"
-                disabled={safePage >= pageCount - 1}
-                onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
-                style={{
-                  background: 'transparent',
-                  border: '1px solid var(--border)',
-                  borderRadius: 6,
-                  padding: '4px 10px',
-                  cursor: safePage >= pageCount - 1 ? 'default' : 'pointer',
-                  opacity: safePage >= pageCount - 1 ? 0.4 : 1,
-                  color: 'inherit',
-                  fontSize: 13,
-                }}
-              >
-                {t('dashboard.historyNext')}
-              </button>
+      <div className="sd-dash-grid">
+        <section className="sd-dash-col sd-dash-col-main">
+          <div className="sd-section-head">
+            <div>
+              <h2>{t('dashboard.inbox')}</h2>
+              <p>{needsAttention ? t('dashboard.inboxHintBusy') : t('dashboard.inboxHintOk')}</p>
             </div>
           </div>
-        )}
-      </Section>
-    </div>
+
+          {!needsAttention ? (
+            <Panel className="sd-entity-card sd-dash-ok">
+              <div className="sd-entity-item">
+                <div className="sd-entity-main">
+                  <div className="sd-entity-top">
+                    <strong className="sd-entity-name">{t('dashboard.inboxEmpty')}</strong>
+                  </div>
+                  <div className="sd-entity-meta">{t('dashboard.inboxEmptyHint')}</div>
+                </div>
+              </div>
+            </Panel>
+          ) : (
+            <div className="sd-entity-list">
+              {data.pendingUpdates.map((u) => (
+                <Panel key={u.id} className="sd-entity-card">
+                  <div className="sd-entity-item">
+                    <div className="sd-entity-main">
+                      <div className="sd-entity-top">
+                        <strong className="sd-entity-name">{t('dashboard.update')}: {u.image}</strong>
+                        <span className="sd-entity-badge" style={{ color: 'var(--sd-warn)' }}>
+                          {t('dashboard.pendingUpdates')}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="sd-entity-actions">
+                      <ApproveButton id={u.id} onDone={onReload} />
+                    </div>
+                  </div>
+                </Panel>
+              ))}
+              {data.attention.map((a) => {
+                const step = humanStepLabel(t, a.currentNodeType, a.currentNodeId);
+                return (
+                  <Panel key={a.id} className="sd-entity-card">
+                    <div className="sd-entity-item">
+                      <div className="sd-entity-main">
+                        <div className="sd-entity-top">
+                          <strong className="sd-entity-name">
+                            {a.flowName || t('runs.runFallback', { id: a.id.slice(0, 8) })}
+                          </strong>
+                          <span className="sd-entity-status" style={{ color: runStatusColor(a.status) }}>
+                            {tt(t, 'status', a.status)}
+                          </span>
+                        </div>
+                        <div className="sd-entity-meta">
+                          {[
+                            t('dashboard.needsAction'),
+                            step ? `${t('dashboard.step')}: ${step}` : null,
+                            a.context?.containerName,
+                          ].filter(Boolean).join(' · ')}
+                        </div>
+                      </div>
+                      <div className="sd-entity-actions">
+                        <IconButton label={t('runs.openDetail')} onClick={() => router.push(`/runs/${a.id}`)}>
+                          <IconOpen />
+                        </IconButton>
+                      </div>
+                    </div>
+                  </Panel>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        <section className="sd-dash-col">
+          <div className="sd-section-head">
+            <div>
+              <h2>{t('dashboard.upcoming')}</h2>
+              <p>{t('dashboard.upcomingHint')}</p>
+            </div>
+            <Link href="/policies" className="sd-entity-link">{t('dashboard.viewPolicies')}</Link>
+          </div>
+          {upcoming.length === 0 ? (
+            <Panel className="sd-entity-card">
+              <div className="sd-entity-meta" style={{ marginTop: 0 }}>{t('dashboard.noPolicies')}</div>
+            </Panel>
+          ) : (
+            <div className="sd-entity-list">
+              {upcoming.map((p) => (
+                <Panel key={p.id} className="sd-entity-card">
+                  <div className="sd-entity-item">
+                    <div className="sd-entity-main">
+                      <div className="sd-entity-top">
+                        <strong className="sd-entity-name">{p.name}</strong>
+                        <span className="sd-entity-badge" style={{ color: 'var(--sd-accent)' }}>
+                          {formatRelative(p.nextRunAt, t)}
+                        </span>
+                      </div>
+                      <div className="sd-entity-meta">
+                        {p.cron} ({p.timezone}) · {formatDate(p.nextRunAt)}
+                      </div>
+                    </div>
+                  </div>
+                </Panel>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+
+      <div className="sd-section-head" style={{ marginTop: 4 }}>
+        <div>
+          <h2>{t('dashboard.fleet')}</h2>
+          <p>{t('dashboard.fleetHint')}</p>
+        </div>
+        <Link href="/agents" className="sd-entity-link">{t('dashboard.viewAgents')}</Link>
+      </div>
+
+      {(data.inventoryAlerts?.length || 0) > 0 ? (
+        <div className="sd-entity-list" style={{ marginBottom: 8 }}>
+          {(data.inventoryAlerts || []).map((a) => (
+            <Panel key={`${a.agentId}-${a.kind}`} className="sd-entity-card sd-dash-alert">
+              <div className="sd-entity-item">
+                <div className="sd-entity-main">
+                  <div className="sd-entity-top">
+                    <strong className="sd-entity-name">{a.agentName}</strong>
+                    <span className="sd-entity-badge" style={{ color: 'var(--sd-warn)' }}>{a.message}</span>
+                  </div>
+                </div>
+              </div>
+            </Panel>
+          ))}
+        </div>
+      ) : null}
+
+      {data.agents.length === 0 ? (
+        <Panel className="sd-entity-card">
+          <div className="sd-entity-meta" style={{ marginTop: 0 }}>{t('dashboard.noAgents')}</div>
+        </Panel>
+      ) : (
+        <div className="sd-dash-fleet">
+          {data.agents.map((a) => {
+            const inv = a.inventory;
+            const pct = diskPct(inv);
+            return (
+              <Panel key={a.id} className="sd-entity-card sd-dash-agent">
+                <div className="sd-entity-top">
+                  <strong className="sd-entity-name">{a.name}</strong>
+                  <span
+                    className="sd-entity-status"
+                    style={{ color: a.online ? 'var(--sd-ok)' : 'var(--sd-muted)' }}
+                  >
+                    {a.online ? t('agents.online') : t('agents.offline')}
+                  </span>
+                </div>
+                <div className="sd-entity-meta sd-entity-meta-wrap">
+                  {[
+                    inv?.containers != null ? `${inv.containers} ${t('dashboard.containersCount')}` : null,
+                    inv?.danglingImages != null ? `${inv.danglingImages} ${t('dashboard.danglingImages')}` : null,
+                    a.labels?.length ? a.labels.join(', ') : null,
+                  ].filter(Boolean).join(' · ') || t('dashboard.noInventoryData')}
+                </div>
+                {pct != null ? (
+                  <div className="sd-meter" title={`${t('dashboard.diskUsage')} ${pct}%`}>
+                    <div className="sd-meter-label">
+                      <span>{t('dashboard.diskUsage')}</span>
+                      <span>{pct}%</span>
+                    </div>
+                    <div className="sd-meter-track">
+                      <div
+                        className={`sd-meter-fill${pct >= 85 ? ' sd-meter-fill-warn' : ''}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+              </Panel>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="sd-section-head" style={{ marginTop: 4 }}>
+        <div>
+          <h2>{t('dashboard.recentFailures')}</h2>
+          <p>{t('dashboard.recentFailuresHint')}</p>
+        </div>
+        <Link href="/runs" className="sd-entity-link">{t('dashboard.viewRuns')}</Link>
+      </div>
+      {recentFailures.length === 0 ? (
+        <Panel className="sd-entity-card">
+          <div className="sd-entity-meta" style={{ marginTop: 0 }}>{t('dashboard.noRecentFailures')}</div>
+        </Panel>
+      ) : (
+        <div className="sd-entity-list">
+          {recentFailures.map((r) => (
+            <Panel key={r.id} className="sd-entity-card">
+              <div className="sd-entity-item">
+                <div className="sd-entity-main">
+                  <div className="sd-entity-top">
+                    <strong className="sd-entity-name">{r.flowName}</strong>
+                    <span className="sd-entity-status" style={{ color: runStatusColor(r.status) }}>
+                      {tt(t, 'status', r.status)}
+                    </span>
+                  </div>
+                  <div className="sd-entity-meta">
+                    {[
+                      r.triggerSource ? tt(t, 'trigger', r.triggerSource) : null,
+                      formatDate(r.finishedAt || r.startedAt || null),
+                      r.context?.containerName,
+                    ].filter(Boolean).join(' · ')}
+                  </div>
+                </div>
+                <div className="sd-entity-actions">
+                  <IconButton label={t('runs.openDetail')} onClick={() => router.push(`/runs/${r.id}`)}>
+                    <IconOpen />
+                  </IconButton>
+                  <IconButton
+                    label={t('runs.rerun')}
+                    tone="primary"
+                    disabled={busyId === r.id || (busyId !== null && busyId !== r.id)}
+                    onClick={() => { void rerun(r.id); }}
+                  >
+                    <IconRefresh />
+                  </IconButton>
+                </div>
+              </div>
+            </Panel>
+          ))}
+        </div>
+      )}
+    </>
   );
 }

@@ -5,7 +5,7 @@ import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { tt } from '@/lib/i18n/translate';
 import {
-  PageHeader, Button, Input, Select, Field, Panel, DataRow, EmptyState, Modal, Alert,
+  PageHeader, Button, Input, Select, Field, Panel, EmptyState, Modal, Alert,
 } from '@/components/ui';
 import { IconButton, IconTrash } from '@/components/IconActions';
 
@@ -52,31 +52,38 @@ export default function SecretsPage() {
   }
 
   return (
-    <div className="sd-page">
+    <div className="sd-page sd-page-compact">
       <PageHeader
         title={t('secrets.title')}
         subtitle={t('secrets.neverReexposed')}
         actions={<Button onClick={openCreate}>{t('secrets.create')}</Button>}
       />
       {rows.length === 0 ? <EmptyState>—</EmptyState> : (
-        <Panel>
+        <div className="sd-entity-list">
           {rows.map((r) => (
-            <DataRow
-              key={r.id}
-              title={r.name}
-              meta={`${tt(t, 'secretTypes', r.type)} · ${r.id.slice(0, 8)}…`}
-              actions={(
-                <IconButton
-                  label={t('secrets.delete')}
-                  tone="danger"
-                  onClick={async () => { await api(`/secrets/${r.id}`, { method: 'DELETE' }); await load(); }}
-                >
-                  <IconTrash />
-                </IconButton>
-              )}
-            />
+            <Panel key={r.id} className="sd-entity-card">
+              <div className="sd-entity-item">
+                <div className="sd-entity-main">
+                  <div className="sd-entity-top">
+                    <strong className="sd-entity-name">{r.name}</strong>
+                  </div>
+                  <div className="sd-entity-meta">
+                    {tt(t, 'secretTypes', r.type)} · {r.id.slice(0, 8)}…
+                  </div>
+                </div>
+                <div className="sd-entity-actions">
+                  <IconButton
+                    label={t('secrets.delete')}
+                    tone="danger"
+                    onClick={async () => { await api(`/secrets/${r.id}`, { method: 'DELETE' }); await load(); }}
+                  >
+                    <IconTrash />
+                  </IconButton>
+                </div>
+              </div>
+            </Panel>
           ))}
-        </Panel>
+        </div>
       )}
 
       <Modal

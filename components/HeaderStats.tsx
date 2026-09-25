@@ -10,48 +10,31 @@ type Summary = {
   agentsOnline: number;
   activeRuns: number;
   pendingUpdates: number;
+  awaitingApproval?: number;
 };
 
 function StatChip({
   label,
   value,
   href,
+  tone = 'default',
 }: {
   label: string;
   value: number;
   href?: string;
+  tone?: 'default' | 'warn';
 }) {
+  const className = `sd-header-stat${tone === 'warn' && value > 0 ? ' sd-header-stat-warn' : ''}`;
   const inner = (
     <>
-      <span style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.2 }}>{label}</span>
-      <span style={{
-        fontFamily: 'IBM Plex Mono, monospace',
-        fontWeight: 700,
-        fontSize: 16,
-        lineHeight: 1.2,
-        color: 'var(--text)',
-      }}>
-        {value}
-      </span>
+      <span className="sd-header-stat-label">{label}</span>
+      <span className="sd-header-stat-value">{value}</span>
     </>
   );
-  const style: React.CSSProperties = {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 2,
-    padding: '4px 12px',
-    borderRadius: 8,
-    border: '1px solid var(--sd-border)',
-    background: 'var(--sd-panel)',
-    textDecoration: 'none',
-    color: 'inherit',
-    minWidth: 88,
-    flexShrink: 0,
-  };
   if (href) {
-    return <Link href={href} style={style}>{inner}</Link>;
+    return <Link href={href} className={className}>{inner}</Link>;
   }
-  return <div style={style}>{inner}</div>;
+  return <div className={className}>{inner}</div>;
 }
 
 export function HeaderStats() {
@@ -77,25 +60,23 @@ export function HeaderStats() {
 
   if (!summary) {
     return (
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 1, minWidth: 0 }}>
-        <span style={{ color: 'var(--muted)', fontSize: 12 }}>{t('common.loading')}</span>
+      <div className="sd-header-stats">
+        <span className="sd-header-stat-label">{t('common.loading')}</span>
       </div>
     );
   }
 
   return (
-    <div style={{
-      display: 'flex',
-      gap: 8,
-      alignItems: 'center',
-      flex: 1,
-      minWidth: 0,
-      flexWrap: 'nowrap',
-      overflowX: 'auto',
-    }}>
+    <div className="sd-header-stats">
       <StatChip label={t('dashboard.agentsOnline')} value={summary.agentsOnline} href="/agents" />
       <StatChip label={t('dashboard.activeRuns')} value={summary.activeRuns} href="/runs" />
       <StatChip label={t('dashboard.pendingUpdates')} value={summary.pendingUpdates} />
+      <StatChip
+        label={t('dashboard.awaitingApprovalShort')}
+        value={summary.awaitingApproval ?? 0}
+        href="/runs"
+        tone="warn"
+      />
     </div>
   );
 }

@@ -5,7 +5,7 @@ import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { SearchSelect, type SearchOption } from '../flows/_components/SearchSelect';
 import {
-  PageHeader, Button, Input, Select, Field, Tabs, Alert, EmptyState, DataRow, Panel, Modal,
+  PageHeader, Button, Input, Select, Field, Tabs, Alert, EmptyState, Panel, Modal,
 } from '@/components/ui';
 import {
   IconButton, IconTrash, IconEdit, IconPower, IconCheck, IconDownload, IconUpload,
@@ -386,7 +386,7 @@ export default function PoliciesPage() {
   };
 
   return (
-    <div className="sd-page">
+    <div className="sd-page sd-page-compact">
       <PageHeader title={t('policies.title')} subtitle={t('policies.subtitle')} />
 
       <Tabs
@@ -403,48 +403,58 @@ export default function PoliciesPage() {
       {msg ? <Alert tone="ok">{msg}</Alert> : null}
 
       {tab === 'watches' && (
-        <Panel>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 12 }}>
+        <>
+          <div className="sd-section-head">
             <div>
-              <h2 style={{ margin: '0 0 4px', fontSize: 16 }}>{t('policies.watches')}</h2>
-              <p style={{ margin: 0, color: 'var(--sd-muted)', fontSize: 13 }}>{t('policies.watchesHint')}</p>
+              <h2>{t('policies.watches')}</h2>
+              <p>{t('policies.watchesHint')}</p>
             </div>
             <Button onClick={openWatchCreate}>{t('policies.addWatch')}</Button>
           </div>
-          {watches.length === 0 ? <EmptyState>{t('policies.noWatches')}</EmptyState> : null}
-          {watches.map((w) => (
-            <DataRow
-              key={w.id}
-              title={w.containerName}
-              meta={`${w.image} · ${agentName(w.agentId)}`}
-              actions={(
-                <IconButton
-                  label={t('common.delete')}
-                  tone="danger"
-                  onClick={async () => {
-                    if (!confirm(t('policies.deleteWatchConfirm'))) return;
-                    try {
-                      await api(`/watches/${w.id}`, { method: 'DELETE' });
-                      await load();
-                    } catch (e) {
-                      setError(e instanceof Error ? e.message : t('common.error'));
-                    }
-                  }}
-                >
-                  <IconTrash />
-                </IconButton>
-              )}
-            />
-          ))}
-        </Panel>
+          {watches.length === 0 ? <EmptyState>{t('policies.noWatches')}</EmptyState> : (
+            <div className="sd-entity-list">
+              {watches.map((w) => (
+                <Panel key={w.id} className="sd-entity-card">
+                  <div className="sd-entity-item">
+                    <div className="sd-entity-main">
+                      <div className="sd-entity-top">
+                        <strong className="sd-entity-name">{w.containerName}</strong>
+                      </div>
+                      <div className="sd-entity-meta">
+                        {w.image} · {agentName(w.agentId)}
+                      </div>
+                    </div>
+                    <div className="sd-entity-actions">
+                      <IconButton
+                        label={t('common.delete')}
+                        tone="danger"
+                        onClick={async () => {
+                          if (!confirm(t('policies.deleteWatchConfirm'))) return;
+                          try {
+                            await api(`/watches/${w.id}`, { method: 'DELETE' });
+                            await load();
+                          } catch (e) {
+                            setError(e instanceof Error ? e.message : t('common.error'));
+                          }
+                        }}
+                      >
+                        <IconTrash />
+                      </IconButton>
+                    </div>
+                  </div>
+                </Panel>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {tab === 'policies' && (
-        <Panel>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 12 }}>
+        <>
+          <div className="sd-section-head">
             <div>
-              <h2 style={{ margin: '0 0 4px', fontSize: 16 }}>{t('policies.policies')}</h2>
-              <p style={{ margin: 0, color: 'var(--sd-muted)', fontSize: 13 }}>{t('policies.policiesHint')}</p>
+              <h2>{t('policies.policies')}</h2>
+              <p>{t('policies.policiesHint')}</p>
             </div>
             {watches.length > 0 ? (
               <Button onClick={openPolicyCreate}>{t('policies.addPolicy')}</Button>
@@ -463,91 +473,120 @@ export default function PoliciesPage() {
           {policies.length === 0 && watches.length > 0 ? (
             <EmptyState>{t('policies.noPolicies')}</EmptyState>
           ) : null}
-          {policies.map((p) => (
-            <DataRow
-              key={p.id}
-              title={p.name}
-              meta={(
-                <>
-                  {watchLabel(p.watchId)} · {flowName(p.flowId)} · {p.cron} ({p.timezone}) · {p.mode}
-                  {p.blackoutStart && p.blackoutEnd ? ` · ${p.blackoutStart}–${p.blackoutEnd}` : ''}
-                  <br />
-                  {t('policies.nextRun')}: {p.nextRunAt ? formatDate(p.nextRunAt) : '—'}
-                  {p.lastRunAt ? ` · ${t('policies.lastRun')}: ${formatDate(p.lastRunAt)}` : ''}
-                </>
-              )}
-              actions={(
-                <>
-                  <IconButton label={t('common.edit')} onClick={() => startEdit(p)}>
-                    <IconEdit />
-                  </IconButton>
-                  <IconButton
-                    label={p.enabled ? t('policies.disable') : t('policies.enable')}
-                    tone={p.enabled ? 'warn' : 'primary'}
-                    onClick={() => { void togglePolicy(p); }}
-                  >
-                    <IconPower />
-                  </IconButton>
-                  <IconButton label={t('policies.checkNow')} onClick={() => { void runCheck(p.id); }}>
-                    <IconCheck />
-                  </IconButton>
-                  <IconButton
-                    label={t('common.delete')}
-                    tone="danger"
-                    onClick={async () => {
-                      if (!confirm(t('policies.deletePolicyConfirm', { name: p.name }))) return;
-                      try {
-                        await api(`/policies/${p.id}`, { method: 'DELETE' });
-                        if (editingId === p.id) {
-                          setEditingId(null);
-                          setPolicyOpen(false);
-                        }
-                        await load();
-                      } catch (e) {
-                        setError(e instanceof Error ? e.message : t('common.error'));
-                      }
-                    }}
-                  >
-                    <IconTrash />
-                  </IconButton>
-                </>
-              )}
-            />
-          ))}
-        </Panel>
+
+          {policies.length > 0 ? (
+            <div className="sd-entity-list">
+              {policies.map((p) => (
+                <Panel key={p.id} className="sd-entity-card">
+                  <div className="sd-entity-item">
+                    <div className="sd-entity-main">
+                      <div className="sd-entity-top">
+                        <strong className="sd-entity-name">{p.name}</strong>
+                        <span
+                          className="sd-entity-status"
+                          style={{ color: p.enabled ? 'var(--sd-ok)' : 'var(--sd-muted)' }}
+                        >
+                          {p.enabled ? t('policies.statusEnabled') : t('policies.statusDisabled')}
+                        </span>
+                        <span className="sd-entity-badge" style={{ color: 'var(--sd-muted)' }}>{p.mode}</span>
+                      </div>
+                      <div className="sd-entity-meta sd-entity-meta-wrap">
+                        {watchLabel(p.watchId)} · {flowName(p.flowId)} · {p.cron} ({p.timezone})
+                        {p.blackoutStart && p.blackoutEnd ? ` · ${p.blackoutStart}–${p.blackoutEnd}` : ''}
+                        {' · '}
+                        {t('policies.nextRun')}: {p.nextRunAt ? formatDate(p.nextRunAt) : '—'}
+                        {p.lastRunAt ? ` · ${t('policies.lastRun')}: ${formatDate(p.lastRunAt)}` : ''}
+                      </div>
+                    </div>
+                    <div className="sd-entity-actions">
+                      <IconButton label={t('common.edit')} onClick={() => startEdit(p)}>
+                        <IconEdit />
+                      </IconButton>
+                      <IconButton
+                        label={p.enabled ? t('policies.disable') : t('policies.enable')}
+                        tone={p.enabled ? 'warn' : 'primary'}
+                        onClick={() => { void togglePolicy(p); }}
+                      >
+                        <IconPower />
+                      </IconButton>
+                      <IconButton label={t('policies.checkNow')} onClick={() => { void runCheck(p.id); }}>
+                        <IconCheck />
+                      </IconButton>
+                      <IconButton
+                        label={t('common.delete')}
+                        tone="danger"
+                        onClick={async () => {
+                          if (!confirm(t('policies.deletePolicyConfirm', { name: p.name }))) return;
+                          try {
+                            await api(`/policies/${p.id}`, { method: 'DELETE' });
+                            if (editingId === p.id) {
+                              setEditingId(null);
+                              setPolicyOpen(false);
+                            }
+                            await load();
+                          } catch (e) {
+                            setError(e instanceof Error ? e.message : t('common.error'));
+                          }
+                        }}
+                      >
+                        <IconTrash />
+                      </IconButton>
+                    </div>
+                  </div>
+                </Panel>
+              ))}
+            </div>
+          ) : null}
+        </>
       )}
 
       {tab === 'io' && (
-        <Panel>
-          <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>{t('policies.tabImportExport')}</h2>
-          <div className="sd-stack" style={{ maxWidth: 480 }}>
+        <Panel className="sd-entity-card">
+          <div className="sd-section-head" style={{ marginBottom: 12 }}>
             <div>
-              <p style={{ margin: '0 0 8px', color: 'var(--sd-muted)', fontSize: 13 }}>{t('policies.exportHint')}</p>
-              <IconButton label={t('policies.export')} onClick={() => { void exportBundle(); }}>
-                <IconDownload />
-              </IconButton>
+              <h2>{t('policies.tabImportExport')}</h2>
             </div>
-            <div>
-              <p style={{ margin: '0 0 8px', color: 'var(--sd-muted)', fontSize: 13 }}>{t('policies.importHint')}</p>
-              <label
-                className="sd-icon-btn"
-                title={t('policies.import')}
-                aria-label={t('policies.import')}
-                data-tooltip={t('policies.import')}
-                style={{ cursor: 'pointer' }}
-              >
-                <IconUpload />
-                <input
-                  type="file"
-                  accept="application/json,.json"
-                  style={{ display: 'none' }}
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) void importBundle(f);
-                    e.target.value = '';
-                  }}
-                />
-              </label>
+          </div>
+          <div className="sd-stack" style={{ maxWidth: 480 }}>
+            <div className="sd-entity-item">
+              <div className="sd-entity-main">
+                <div className="sd-entity-meta sd-entity-meta-wrap" style={{ marginTop: 0 }}>
+                  {t('policies.exportHint')}
+                </div>
+              </div>
+              <div className="sd-entity-actions">
+                <IconButton label={t('policies.export')} onClick={() => { void exportBundle(); }}>
+                  <IconDownload />
+                </IconButton>
+              </div>
+            </div>
+            <div className="sd-entity-item">
+              <div className="sd-entity-main">
+                <div className="sd-entity-meta sd-entity-meta-wrap" style={{ marginTop: 0 }}>
+                  {t('policies.importHint')}
+                </div>
+              </div>
+              <div className="sd-entity-actions">
+                <label
+                  className="sd-icon-btn"
+                  title={t('policies.import')}
+                  aria-label={t('policies.import')}
+                  data-tooltip={t('policies.import')}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <IconUpload />
+                  <input
+                    type="file"
+                    accept="application/json,.json"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) void importBundle(f);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
             </div>
           </div>
         </Panel>

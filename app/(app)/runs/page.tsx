@@ -5,9 +5,8 @@ import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { tt } from '@/lib/i18n/translate';
-import { ActionIconButton, StatusPill } from './_components/RunActionIcons';
-import { IconOpen, IconRefresh } from '@/components/IconActions';
-import { PageHeader, Alert, EmptyState } from '@/components/ui';
+import { PageHeader, Alert, EmptyState, Panel } from '@/components/ui';
+import { IconButton, IconOpen, IconRefresh } from '@/components/IconActions';
 
 type Run = {
   id: string;
@@ -36,6 +35,14 @@ function humanStepLabel(t: (key: string) => string, r: Run): string | null {
   const translated = t(key);
   if (translated !== key) return translated;
   return type.replace(/_/g, ' ');
+}
+
+function runStatusColor(status: string): string {
+  if (status === 'success') return '#3dd68c';
+  if (status === 'failed' || status === 'aborted' || status === 'rejected') return 'var(--sd-danger)';
+  if (status === 'running') return 'var(--sd-accent)';
+  if (status === 'waiting_approval' || status === 'awaiting_user' || status === 'interrupted') return 'var(--sd-warn)';
+  return 'var(--sd-muted)';
 }
 
 export default function RunsPage() {
@@ -70,65 +77,70 @@ export default function RunsPage() {
   function RunCard({ r, showStep }: { r: Run; showStep?: boolean }) {
     const hint = contextHint(r);
     const busy = busyId === r.id;
+    const step = showStep ? humanStepLabel(t, r) : null;
     return (
-      <article className="sd-panel" style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 4 }}>
-            <strong style={{ fontSize: 15 }}>{r.flowName}</strong>
-            <StatusPill status={r.status} />
-            {r.dryRun ? (
-              <span style={{ fontSize: 11, color: 'var(--sd-warn)' }}>{t('runs.dryRunBadge')}</span>
-            ) : null}
+      <Panel className="sd-entity-card">
+        <div className="sd-entity-item">
+          <div className="sd-entity-main">
+            <div className="sd-entity-top">
+              <strong className="sd-entity-name">{r.flowName}</strong>
+              <span className="sd-entity-status" style={{ color: runStatusColor(r.status) }}>
+                {tt(t, 'status', r.status)}
+              </span>
+              {r.dryRun ? (
+                <span className="sd-entity-badge" style={{ color: 'var(--sd-warn)' }}>{t('runs.dryRunBadge')}</span>
+              ) : null}
+            </div>
+            <div className="sd-entity-meta">
+              <span title={r.id}>{r.id.slice(0, 8)}…</span>
+              {' · '}
+              {tt(t, 'trigger', r.triggerSource)}
+              {' · '}
+              {formatDate(r.finishedAt || r.startedAt)}
+              {hint ? <> · {hint}</> : null}
+              {step ? <> · {t('runs.step')}: {step}</> : null}
+            </div>
           </div>
-          <div style={{ color: 'var(--sd-muted)', fontSize: 12, lineHeight: 1.45 }}>
-            <span title={r.id}>{r.id.slice(0, 8)}…</span>
-            {' · '}
-            <span>{tt(t, 'trigger', r.triggerSource)}</span>
-            {' · '}
-            <span>{formatDate(r.finishedAt || r.startedAt)}</span>
-            {hint ? <> · {hint}</> : null}
-            {showStep && humanStepLabel(t, r) ? (
-              <> · {t('runs.step')}: {humanStepLabel(t, r)}</>
-            ) : null}
+          <div className="sd-entity-actions">
+            <IconButton label={t('runs.openDetail')} onClick={() => router.push(`/runs/${r.id}`)}>
+              <IconOpen />
+            </IconButton>
+            <IconButton
+              label={t('runs.rerun')}
+              tone="primary"
+              disabled={busy || (busyId !== null && !busy)}
+              onClick={() => { void rerun(r.id); }}
+            >
+              <IconRefresh />
+            </IconButton>
           </div>
         </div>
-
-        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-          <ActionIconButton
-            title={t('runs.openDetail')}
-            onClick={() => router.push(`/runs/${r.id}`)}
-          >
-            <IconOpen />
-          </ActionIconButton>
-          <ActionIconButton
-            title={t('runs.rerun')}
-            primary
-            disabled={busy || (busyId !== null && !busy)}
-            onClick={() => { void rerun(r.id); }}
-          >
-            <IconRefresh />
-          </ActionIconButton>
-        </div>
-      </article>
+      </Panel>
     );
   }
 
   return (
-    <div className="sd-page">
+    <div className="sd-page sd-page-compact">
       <PageHeader title={t('runs.title')} subtitle={t('runs.subtitle')} />
       {error ? <Alert>{error}</Alert> : null}
 
-      <section className="sd-stack">
-        <h2 style={{ margin: 0, fontSize: 16 }}>{t('runs.active')}</h2>
-        {active.length === 0 ? <EmptyState>{t('runs.emptyActive')}</EmptyState> : null}
-        {active.map((r) => <RunCard key={r.id} r={r} showStep />)}
-      </section>
+      <div className="sd-section-head">
+        <h2>{t('runs.active')}</h2>
+      </div>
+      {active.length === 0 ? <EmptyState>{t('runs.emptyActive')}</EmptyState> : (
+        <div className="sd-entity-list">
+          {active.map((r) => <RunCard key={r.id} r={r} showStep />)}
+        </div>
+      )}
 
-      <section className="sd-stack">
-        <h2 style={{ margin: 0, fontSize: 16 }}>{t('runs.history')}</h2>
-        {history.length === 0 ? <EmptyState>{t('runs.emptyHistory')}</EmptyState> : null}
-        {history.map((r) => <RunCard key={r.id} r={r} />)}
-      </section>
+      <div className="sd-section-head" style={{ marginTop: 8 }}>
+        <h2>{t('runs.history')}</h2>
+      </div>
+      {history.length === 0 ? <EmptyState>{t('runs.emptyHistory')}</EmptyState> : (
+        <div className="sd-entity-list">
+          {history.map((r) => <RunCard key={r.id} r={r} />)}
+        </div>
+      )}
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import {
-  PageHeader, Button, Input, Select, Field, Panel, DataRow, Alert, EmptyState, Modal,
+  PageHeader, Button, Input, Select, Field, Panel, Alert, EmptyState, Modal,
 } from '@/components/ui';
 
 export default function WebhooksPage() {
@@ -51,21 +51,28 @@ export default function WebhooksPage() {
   }
 
   return (
-    <div className="sd-page">
+    <div className="sd-page sd-page-compact">
       <PageHeader
         title={t('webhooks.title')}
         actions={<Button onClick={openCreate}>{t('webhooks.create')}</Button>}
       />
       {hooks.length === 0 ? <EmptyState>—</EmptyState> : (
-        <Panel>
+        <div className="sd-entity-list">
           {hooks.map((h) => (
-            <DataRow
-              key={h.id}
-              title={h.name}
-              meta={`flow ${h.flowId.slice(0, 8)}… · /api/hooks/${h.id}`}
-            />
+            <Panel key={h.id} className="sd-entity-card">
+              <div className="sd-entity-item">
+                <div className="sd-entity-main">
+                  <div className="sd-entity-top">
+                    <strong className="sd-entity-name">{h.name}</strong>
+                  </div>
+                  <div className="sd-entity-meta">
+                    flow {h.flowId.slice(0, 8)}… · /api/hooks/{h.id}
+                  </div>
+                </div>
+              </div>
+            </Panel>
           ))}
-        </Panel>
+        </div>
       )}
 
       <Modal

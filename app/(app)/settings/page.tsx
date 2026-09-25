@@ -21,26 +21,34 @@ export default function SettingsPage() {
   }, [t]);
 
   return (
-    <div className="sd-page">
-      <PageHeader title={t('settings.title')} />
+    <div className="sd-page sd-page-compact">
+      <PageHeader title={t('settings.title')} subtitle={t('settings.tlsHint')} />
       {error ? <Alert>{error}</Alert> : null}
-      <Panel>
-        <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>{t('settings.settingsSection')}</h2>
-        <div className="sd-stack">
-          {rows.map((r) => (
-            <div key={r.key} className="sd-form-row" style={{ alignItems: 'center' }}>
-              <code style={{ minWidth: 180, fontSize: 12 }}>{r.key}</code>
-              <Input
-                defaultValue={r.value}
-                onBlur={async (e) => {
-                  await api(`/settings/${r.key}`, { method: 'PUT', body: JSON.stringify({ value: e.target.value }) });
-                }}
-              />
+      <div className="sd-section-head">
+        <h2>{t('settings.settingsSection')}</h2>
+      </div>
+      {rows.length === 0 && !error ? <p style={{ color: 'var(--sd-muted)', fontSize: 13 }}>—</p> : null}
+      <div className="sd-entity-list">
+        {rows.map((r) => (
+          <Panel key={r.key} className="sd-entity-card">
+            <div className="sd-entity-item">
+              <div className="sd-entity-main" style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                <code className="sd-entity-name" style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '0.75rem', minWidth: 160 }}>
+                  {r.key}
+                </code>
+                <Input
+                  className="sd-input sd-input-sm"
+                  defaultValue={r.value}
+                  style={{ flex: 1, minWidth: 180 }}
+                  onBlur={async (e) => {
+                    await api(`/settings/${r.key}`, { method: 'PUT', body: JSON.stringify({ value: e.target.value }) });
+                  }}
+                />
+              </div>
             </div>
-          ))}
-        </div>
-        <p style={{ color: 'var(--sd-muted)', fontSize: 13, margin: '12px 0 0' }}>{t('settings.tlsHint')}</p>
-      </Panel>
+          </Panel>
+        ))}
+      </div>
     </div>
   );
 }

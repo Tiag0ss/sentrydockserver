@@ -136,7 +136,7 @@ export function FlowsList({ onCreate, onEdit }: Props) {
       ) : null}
 
       {filtered.length > 0 ? (
-        <div className="sd-flows-list">
+        <div className="sd-entity-list">
           {filtered.map((f) => {
             const nodeCount = f.graph?.nodes?.length ?? 0;
             const edgeCount = f.graph?.edges?.length ?? 0;
@@ -144,39 +144,39 @@ export function FlowsList({ onCreate, onEdit }: Props) {
             const next = f.nextRun;
             const busy = runningId === f.id;
             return (
-              <Panel key={f.id} className="sd-flow-card">
-                <div className="sd-flow-item">
-                  <div className="sd-flow-item-main">
-                    <div className="sd-flow-item-top">
-                      <strong className="sd-flow-item-name">{f.name}</strong>
+              <Panel key={f.id} className="sd-entity-card">
+                <div className="sd-entity-item">
+                  <div className="sd-entity-main">
+                    <div className="sd-entity-top">
+                      <strong className="sd-entity-name">{f.name}</strong>
                       {last ? (
                         <>
                           <span
-                            className="sd-flow-run-status"
+                            className="sd-entity-status"
                             style={{ color: runStatusColor(last.status) }}
                           >
                             {tt(t, 'status', last.status)}
                           </span>
                           {last.dryRun ? (
-                            <span className="sd-flow-dry">{t('runs.dryRunBadge')}</span>
+                            <span className="sd-entity-badge" style={{ color: 'var(--sd-warn)' }}>{t('runs.dryRunBadge')}</span>
                           ) : null}
-                          <Link href={`/runs/${last.id}`} className="sd-flow-run-link">
+                          <Link href={`/runs/${last.id}`} className="sd-entity-link">
                             {formatDate(last.finishedAt || last.startedAt)}
                           </Link>
                         </>
                       ) : (
-                        <span className="sd-flow-run-none">{t('flows.noLastRun')}</span>
+                        <span className="sd-entity-muted">{t('flows.noLastRun')}</span>
                       )}
-                      <span className="sd-flow-sep">·</span>
+                      <span className="sd-entity-sep">·</span>
                       {next ? (
-                        <span className="sd-flow-next">
+                        <span className="sd-entity-muted">
                           {t('flows.nextRun')} {formatDate(next.at)}
                         </span>
                       ) : (
-                        <span className="sd-flow-run-none">{t('flows.noNextRun')}</span>
+                        <span className="sd-entity-muted">{t('flows.noNextRun')}</span>
                       )}
                     </div>
-                    <div className="sd-flow-item-meta">
+                    <div className="sd-entity-meta">
                       {f.description || t('flows.noDescription')}
                       {' · '}
                       {nodeCount} {t('flows.nodes')}
@@ -186,7 +186,7 @@ export function FlowsList({ onCreate, onEdit }: Props) {
                       {t('flows.updated')} {formatDate(f.updatedAt)}
                     </div>
                   </div>
-                  <div className="sd-flow-item-actions">
+                  <div className="sd-entity-actions">
                     <IconButton
                       label={busy ? t('flows.running') : t('flows.run')}
                       tone="primary"
