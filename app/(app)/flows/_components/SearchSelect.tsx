@@ -71,7 +71,7 @@ export function SearchSelect({
 
   return (
     <div ref={rootRef} style={{ position: 'relative' }}>
-      <div style={{ fontSize: 13, marginBottom: 0 }}>{label}</div>
+      {label ? <div style={{ fontSize: 13, marginBottom: 0 }}>{label}</div> : null}
       <button
         type="button"
         disabled={disabled}

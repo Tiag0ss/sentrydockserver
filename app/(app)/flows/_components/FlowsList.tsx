@@ -17,6 +17,11 @@ export type FlowSummary = {
   description: string | null;
   updatedAt: string;
   graph: { nodes: unknown[]; edges: unknown[] };
+  scheduleEnabled?: boolean;
+  cron?: string | null;
+  timezone?: string | null;
+  blackoutStart?: string | null;
+  blackoutEnd?: string | null;
   lastRun?: {
     id: string;
     status: string;
@@ -26,7 +31,7 @@ export type FlowSummary = {
   } | null;
   nextRun?: {
     at: string;
-    policyId: string;
+    policyId?: string | null;
     policyName?: string | null;
   } | null;
 };

@@ -61,18 +61,19 @@ function toFlowEdges(
   graphNodes: FlowSummary['graph']['nodes'],
   edgeLabel: (portId: string) => string,
 ): Edge[] {
-  const typeById = new Map(
+  const nodeById = new Map(
     (graphNodes || []).map((raw) => {
-      const n = raw as { id: string; type?: string; data?: { nodeType?: string } };
-      return [n.id, String(n.type || n.data?.nodeType || '')] as const;
+      const n = raw as { id: string; type?: string; data?: Record<string, unknown> };
+      return [n.id, n] as const;
     }),
   );
   return ((graphEdges || []) as Edge[])
     .filter((e) => e.source !== e.target)
     .map((e) => {
-    const type = typeById.get(e.source) || '';
-    const outputs = getNodeOutputs(type);
-    const sourceHandle = normalizeHandle(type, e.sourceHandle);
+    const src = nodeById.get(e.source);
+    const type = String(src?.type || src?.data?.nodeType || '');
+    const outputs = getNodeOutputs(type, src?.data || null);
+    const sourceHandle = normalizeHandle(type, e.sourceHandle, src?.data || null);
     return {
       ...e,
       sourceHandle,
@@ -105,6 +106,11 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
 
   const [flowId, setFlowId] = useState<string | null>(initial?.id ?? null);
   const [name, setName] = useState(initial?.name ?? t('flows.newName'));
+  const [scheduleEnabled, setScheduleEnabled] = useState(Boolean(initial?.scheduleEnabled));
+  const [cron, setCron] = useState(initial?.cron || '0 */6 * * *');
+  const [timezone, setTimezone] = useState(initial?.timezone || 'Europe/Lisbon');
+  const [blackoutStart, setBlackoutStart] = useState(initial?.blackoutStart || '');
+  const [blackoutEnd, setBlackoutEnd] = useState(initial?.blackoutEnd || '');
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(
     initial ? toFlowNodes(initial.graph.nodes, nodeLabel) : [],
   );
@@ -123,6 +129,11 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
     if (!initial) return;
     setFlowId(initial.id);
     setName(initial.name);
+    setScheduleEnabled(Boolean(initial.scheduleEnabled));
+    setCron(initial.cron || '0 */6 * * *');
+    setTimezone(initial.timezone || 'Europe/Lisbon');
+    setBlackoutStart(initial.blackoutStart || '');
+    setBlackoutEnd(initial.blackoutEnd || '');
     setNodes(toFlowNodes(initial.graph.nodes, nodeLabel));
     setEdges(toFlowEdges(initial.graph.edges, initial.graph.nodes, edgePortLabel));
   }, [initial, setNodes, setEdges, nodeLabel, edgePortLabel]);
@@ -146,10 +157,13 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
     (c: Connection) => {
       if (!c.source || !c.target || c.source === c.target) return;
       const sourceNode = nodes.find((n) => n.id === c.source);
-      const outputs = getNodeOutputs(String(sourceNode?.data.nodeType || ''));
+      const nodeType = String(sourceNode?.data.nodeType || '');
+      const data = (sourceNode?.data || {}) as Record<string, unknown>;
+      const outputs = getNodeOutputs(nodeType, data);
       const handleId = normalizeHandle(
-        String(sourceNode?.data.nodeType || ''),
-        c.sourceHandle || outputs[0]?.id || 'ok',
+        nodeType,
+        c.sourceHandle || outputs[0]?.id || 'out',
+        data,
       );
       const portLabel = outputs.length > 1 ? edgePortLabel(handleId) : undefined;
       setEdges((eds) => addEdge({
@@ -190,6 +204,16 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
           label: nodeLabel(type),
           nodeType: type,
           retries: 0,
+          ...(type === 'if' ? { field: 'lastResult' } : {}),
+          ...(type === 'case' ? {
+            field: 'lastOutcome',
+            cases: [
+              { id: 'update', match: 'update' },
+              { id: 'no_update', match: 'no_update' },
+            ],
+          } : {}),
+          ...(type === 'check_image_update' ? { agentScope: 'all' } : {}),
+          ...(type === 'split' ? { targetsSource: 'context' } : {}),
         },
         deletable: true,
       }];
@@ -274,17 +298,31 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
 
   async function save() {
     const graph = buildGraph();
+    const payload = {
+      name,
+      graph,
+      scheduleEnabled,
+      cron: scheduleEnabled ? cron : null,
+      timezone,
+      blackoutStart: blackoutStart || null,
+      blackoutEnd: blackoutEnd || null,
+    };
     if (flowId) {
-      await api(`/flows/${flowId}`, { method: 'PUT', body: JSON.stringify({ name, graph }) });
+      await api(`/flows/${flowId}`, { method: 'PUT', body: JSON.stringify(payload) });
       onSaved({
         id: flowId,
         name,
         description: initial?.description ?? null,
         updatedAt: new Date().toISOString(),
         graph,
+        scheduleEnabled,
+        cron: scheduleEnabled ? cron : null,
+        timezone,
+        blackoutStart: blackoutStart || null,
+        blackoutEnd: blackoutEnd || null,
       });
     } else {
-      const res = await api<{ id: string }>('/flows', { method: 'POST', body: JSON.stringify({ name, graph }) });
+      const res = await api<{ id: string }>('/flows', { method: 'POST', body: JSON.stringify(payload) });
       setFlowId(res.id);
       onSaved({
         id: res.id,
@@ -292,6 +330,11 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
         description: null,
         updatedAt: new Date().toISOString(),
         graph,
+        scheduleEnabled,
+        cron: scheduleEnabled ? cron : null,
+        timezone,
+        blackoutStart: blackoutStart || null,
+        blackoutEnd: blackoutEnd || null,
       });
     }
     setMsg(t('flows.saved'));
@@ -358,7 +401,7 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
   const inspector = (
     <div style={{ border: '1px solid var(--sd-border)', borderRadius: 10, padding: 12, background: 'var(--sd-panel)', height: '100%', overflow: 'auto' }}>
       <div style={{ fontWeight: 600, marginBottom: 8 }}>{t('flows.properties')}</div>
-      <NodeInspector selectedNode={selectedNode} onPatch={patchNode} />
+      <NodeInspector selectedNode={selectedNode} nodes={nodes} edges={edges} onPatch={patchNode} />
       {selectedNode && (
         <button
           type="button"
@@ -398,6 +441,68 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
           </>
         ) : null}
         {msg && <span style={{ color: 'var(--sd-muted)', fontSize: 13 }}>{msg}</span>}
+      </div>
+
+      <div style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: 10,
+        alignItems: 'center',
+        padding: '8px 10px',
+        border: '1px solid var(--sd-border)',
+        borderRadius: 10,
+        background: 'var(--sd-panel)',
+        fontSize: 12,
+      }}>
+        <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontWeight: 600 }}>
+          <input
+            type="checkbox"
+            checked={scheduleEnabled}
+            onChange={(e) => setScheduleEnabled(e.target.checked)}
+          />
+          {t('flows.scheduleEnabled')}
+        </label>
+        {scheduleEnabled ? (
+          <>
+            <label>
+              {t('flows.cron')}
+              <input
+                style={{ ...inputStyle, width: 140, marginTop: 2 }}
+                value={cron}
+                onChange={(e) => setCron(e.target.value)}
+                placeholder="0 */6 * * *"
+              />
+            </label>
+            <label>
+              {t('flows.timezone')}
+              <input
+                style={{ ...inputStyle, width: 140, marginTop: 2 }}
+                value={timezone}
+                onChange={(e) => setTimezone(e.target.value)}
+              />
+            </label>
+            <label>
+              {t('flows.blackoutStart')}
+              <input
+                style={{ ...inputStyle, width: 80, marginTop: 2 }}
+                value={blackoutStart}
+                onChange={(e) => setBlackoutStart(e.target.value)}
+                placeholder="HH:mm"
+              />
+            </label>
+            <label>
+              {t('flows.blackoutEnd')}
+              <input
+                style={{ ...inputStyle, width: 80, marginTop: 2 }}
+                value={blackoutEnd}
+                onChange={(e) => setBlackoutEnd(e.target.value)}
+                placeholder="HH:mm"
+              />
+            </label>
+          </>
+        ) : (
+          <span style={{ color: 'var(--sd-muted)' }}>{t('flows.scheduleHint')}</span>
+        )}
       </div>
 
       <div

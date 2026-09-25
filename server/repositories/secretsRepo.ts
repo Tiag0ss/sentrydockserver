@@ -25,6 +25,13 @@ export const secretsRepo = {
   }) {
     db.insert(secrets).values(row).run();
   },
+  update(id: string, patch: Partial<{
+    name: string;
+    ciphertext: string;
+    updatedAt: Date;
+  }>) {
+    db.update(secrets).set(patch).where(eq(secrets.id, id)).run();
+  },
   delete(id: string) {
     db.delete(secrets).where(eq(secrets.id, id)).run();
   },

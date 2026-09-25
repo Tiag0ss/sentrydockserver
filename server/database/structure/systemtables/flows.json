@@ -23,6 +23,43 @@
       "NotNullable": true
     },
     {
+      "FieldName": "schedule_enabled",
+      "DataType": "boolean",
+      "NotNullable": true,
+      "DefaultValue": false
+    },
+    {
+      "FieldName": "cron",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "timezone",
+      "DataType": "varchar(64)",
+      "NotNullable": false,
+      "DefaultValue": "Europe/Lisbon"
+    },
+    {
+      "FieldName": "blackout_start",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "blackout_end",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "next_run_at",
+      "DataType": "integer",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "last_run_at",
+      "DataType": "integer",
+      "NotNullable": false
+    },
+    {
       "FieldName": "created_at",
       "DataType": "integer",
       "NotNullable": true

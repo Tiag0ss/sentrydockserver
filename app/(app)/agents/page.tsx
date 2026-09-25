@@ -7,7 +7,7 @@ import { tt } from '@/lib/i18n/translate';
 import {
   PageHeader, Button, Input, Select, Field, Alert, EmptyState, Panel, Modal,
 } from '@/components/ui';
-import { IconButton, IconTrash, IconSave } from '@/components/IconActions';
+import { IconButton, IconTrash, IconSave, IconEdit } from '@/components/IconActions';
 
 type Agent = {
   id: string;
@@ -16,6 +16,7 @@ type Agent = {
   online: boolean;
   transport: string;
   protocolVersion: number | null;
+  agentVersion?: string | null;
   token?: string;
   labels?: string[];
   meta?: {
@@ -26,6 +27,13 @@ type Agent = {
   } | null;
 };
 
+function parseLabels(raw: string): string[] {
+  return raw
+    .split(/[,;\n]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 export default function AgentsPage() {
   const { t } = useI18n();
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -33,19 +41,16 @@ export default function AgentsPage() {
   const [name, setName] = useState('');
   const [transport, setTransport] = useState('ws');
   const [createdToken, setCreatedToken] = useState('');
+  const [editingLabels, setEditingLabels] = useState<Record<string, boolean>>({});
   const [labelDraft, setLabelDraft] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [savingLabelsId, setSavingLabelsId] = useState<string | null>(null);
 
   async function load() {
     const rows = await api<Agent[]>('/agents');
     setAgents(rows);
-    const drafts: Record<string, string> = {};
-    for (const a of rows) {
-      drafts[a.id] = (a.labels || []).join(', ');
-    }
-    setLabelDraft(drafts);
   }
 
   useEffect(() => { void load().catch((e) => setError(e instanceof Error ? e.message : t('common.error'))); }, [t]);
@@ -73,10 +78,27 @@ export default function AgentsPage() {
     }
   }
 
+  function startEditLabels(a: Agent) {
+    setLabelDraft((s) => ({ ...s, [a.id]: (a.labels || []).join(', ') }));
+    setEditingLabels((s) => ({ ...s, [a.id]: true }));
+  }
+
+  function cancelEditLabels(id: string) {
+    setEditingLabels((s) => ({ ...s, [id]: false }));
+  }
+
   async function saveLabels(id: string) {
-    const labels = (labelDraft[id] || '').split(',').map((s) => s.trim()).filter(Boolean);
-    await api(`/agents/${id}`, { method: 'PATCH', body: JSON.stringify({ labels }) });
-    await load();
+    setSavingLabelsId(id);
+    try {
+      const labels = parseLabels(labelDraft[id] || '');
+      await api(`/agents/${id}`, { method: 'PATCH', body: JSON.stringify({ labels }) });
+      setEditingLabels((s) => ({ ...s, [id]: false }));
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('common.error'));
+    } finally {
+      setSavingLabelsId(null);
+    }
   }
 
   return (
@@ -95,16 +117,19 @@ export default function AgentsPage() {
       {agents.length > 0 ? (
         <div className="sd-entity-list">
           {agents.map((a) => {
+            const transportLabel = a.transport === 'grpc' ? 'gRPC' : a.transport === 'ws' ? 'WebSocket' : a.transport;
             const metaBits = [
-              a.transport,
+              a.agentVersion ? `${t('agents.version')} ${a.agentVersion}` : null,
+              `${t('agents.transport')} ${transportLabel}`,
               `${t('agents.protocol')} ${a.protocolVersion ?? '—'}`,
-              `${a.id.slice(0, 8)}…`,
               a.meta?.containers != null ? `${a.meta.containers} containers` : null,
               a.meta?.danglingImages != null ? `${a.meta.danglingImages} dangling` : null,
               a.meta?.diskUsedBytes != null
                 ? `disk ${(a.meta.diskUsedBytes / (1024 ** 3)).toFixed(1)} GiB`
                 : null,
             ].filter(Boolean);
+            const labels = a.labels || [];
+            const isEditing = Boolean(editingLabels[a.id]);
             return (
               <Panel key={a.id} className="sd-entity-card">
                 <div className="sd-entity-item">
@@ -119,20 +144,64 @@ export default function AgentsPage() {
                       </span>
                     </div>
                     <div className="sd-entity-meta">{metaBits.join(' · ')}</div>
-                    <div className="sd-entity-extra sd-form-row" style={{ marginTop: 8 }}>
-                      <Field label={t('agents.labels')}>
-                        <Input
-                          className="sd-input sd-input-sm"
-                          placeholder={t('agents.labelsPlaceholder')}
-                          value={labelDraft[a.id] || ''}
-                          onChange={(e) => setLabelDraft((s) => ({ ...s, [a.id]: e.target.value }))}
-                        />
-                      </Field>
-                      <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-                        <IconButton label={t('agents.saveLabels')} tone="primary" onClick={() => { void saveLabels(a.id); }}>
-                          <IconSave />
-                        </IconButton>
-                      </div>
+                    <div className="sd-agent-labels">
+                      {isEditing ? (
+                        <div className="sd-agent-labels-edit">
+                          <Field label={t('agents.labels')}>
+                            <Input
+                              className="sd-input sd-input-sm"
+                              placeholder={t('agents.labelsPlaceholder')}
+                              value={labelDraft[a.id] || ''}
+                              autoFocus
+                              onChange={(e) => setLabelDraft((s) => ({ ...s, [a.id]: e.target.value }))}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  void saveLabels(a.id);
+                                }
+                                if (e.key === 'Escape') cancelEditLabels(a.id);
+                              }}
+                            />
+                          </Field>
+                          <div className="sd-agent-labels-edit-actions">
+                            <IconButton
+                              label={t('agents.saveLabels')}
+                              tone="primary"
+                              disabled={savingLabelsId === a.id}
+                              onClick={() => { void saveLabels(a.id); }}
+                            >
+                              <IconSave />
+                            </IconButton>
+                            <Button
+                              variant="ghost"
+                              className="sd-btn-sm"
+                              onClick={() => cancelEditLabels(a.id)}
+                            >
+                              {t('common.cancel')}
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="sd-agent-labels-view">
+                          <div className="sd-chip-row" aria-label={t('agents.labels')}>
+                            {labels.length === 0 ? (
+                              <span className="sd-entity-muted">{t('agents.noLabels')}</span>
+                            ) : (
+                              labels.map((label) => (
+                                <span key={label} className="sd-chip">{label}</span>
+                              ))
+                            )}
+                          </div>
+                          <Button
+                            variant="ghost"
+                            className="sd-btn-sm sd-agent-labels-edit-btn"
+                            onClick={() => startEditLabels(a)}
+                          >
+                            <IconEdit />
+                            {t('agents.editLabels')}
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="sd-entity-actions">

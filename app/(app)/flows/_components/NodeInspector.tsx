@@ -1,11 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import type { Node } from '@xyflow/react';
+import type { Edge, Node } from '@xyflow/react';
 import { api } from '@/lib/api';
 import {
-  CONTEXT_FIELD_VALUES,
   TEMPLATE_TAGS,
+  getCaseFieldsForPrev,
+  getCaseMatchValues,
+  getIfFieldsForPrev,
   getNodeOutputs,
   inputStyle,
 } from './flowConstants';
@@ -49,12 +51,30 @@ function preferImageName(...candidates: Array<string | undefined | null>): strin
 
 type Props = {
   selectedNode: Node | null;
+  nodes?: Node[];
+  edges?: Edge[];
   onPatch: (id: string, patch: Record<string, unknown>) => void;
 };
 
+function resolveNodeType(n: Node | null | undefined): string {
+  if (!n) return '';
+  // React Flow usa type='flowCard'; o tipo lógico está em data.nodeType
+  return String(n.data?.nodeType || '');
+}
+
+/** Predecessor directo (primeira aresta de entrada). */
+function findPreviousNode(
+  nodeId: string,
+  nodes: Node[],
+  edges: Edge[],
+): Node | null {
+  const incoming = edges.find((e) => e.target === nodeId);
+  if (!incoming) return null;
+  return nodes.find((n) => n.id === incoming.source) || null;
+}
+
 const AGENT_NODES = [
   'pull_image',
-  'check_image_update',
   'recreate_container',
   'wait_healthy',
   'rollback',
@@ -70,13 +90,20 @@ const CONTAINER_NODES = [
   'rollback',
 ];
 
-export function NodeInspector({ selectedNode, onPatch }: Props) {
+export function NodeInspector({ selectedNode, nodes = [], edges = [], onPatch }: Props) {
   const { t } = useI18n();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [secrets, setSecrets] = useState<SecretMeta[]>([]);
   const [templates, setTemplates] = useState<Array<{ id: string; key: string; name: string; body: string }>>([]);
   const [containers, setContainers] = useState<ContainerRow[]>([]);
   const [loadingContainers, setLoadingContainers] = useState(false);
+
+  const previousNode = useMemo(() => {
+    if (!selectedNode) return null;
+    return findPreviousNode(selectedNode.id, nodes, edges);
+  }, [selectedNode, nodes, edges]);
+
+  const previousType = resolveNodeType(previousNode);
 
   useEffect(() => {
     void (async () => {
@@ -181,7 +208,7 @@ export function NodeInspector({ selectedNode, onPatch }: Props) {
   }
 
   const type = String(selectedNode.data.nodeType);
-  const outputs = getNodeOutputs(type);
+  const outputs = getNodeOutputs(type, selectedNode.data as Record<string, unknown>);
   const id = selectedNode.id;
   const patch = (key: string, value: unknown) => onPatch(id, { [key]: value });
   const hintKey = `nodeHints.${type}`;
@@ -249,6 +276,54 @@ export function NodeInspector({ selectedNode, onPatch }: Props) {
           ))}
         </div>
       </div>
+    );
+  }
+
+  function templatePicker(messageKey: 'message' | 'templateBody', opts?: {
+    messageLabel?: string;
+    placeholder?: string;
+  }) {
+    const messageLabel = opts?.messageLabel
+      || (messageKey === 'templateBody' ? t('inspector.templateBody') : t('inspector.message'));
+    return (
+      <>
+        <label>
+          {t('inspector.templateKey')}
+          <select
+            style={inputStyle}
+            value={String(selectedNode!.data.templateKey || '')}
+            onChange={(e) => {
+              const key = e.target.value;
+              const tpl = templates.find((x) => x.key === key);
+              const next: Record<string, unknown> = { templateKey: key };
+              if (tpl?.body) {
+                const trimmed = tpl.body.trim();
+                let human = tpl.body;
+                if (trimmed.startsWith('{')) {
+                  try {
+                    const parsed = JSON.parse(trimmed) as { text?: string; message?: string };
+                    human = parsed.text || parsed.message || tpl.body;
+                  } catch {
+                    /* keep */
+                  }
+                }
+                if (messageKey === 'message') next.message = human;
+                else next.templateBody = tpl.body;
+              }
+              onPatch(id, next);
+            }}
+          >
+            <option value="">{t('inspector.selectTemplate')}</option>
+            {templates.map((tpl) => (
+              <option key={tpl.id} value={tpl.key}>{tpl.name} ({tpl.key})</option>
+            ))}
+          </select>
+        </label>
+        {templateField(messageKey, messageLabel, {
+          minHeight: messageKey === 'templateBody' ? 100 : 72,
+          placeholder: opts?.placeholder,
+        })}
+      </>
     );
   }
 
@@ -382,25 +457,196 @@ export function NodeInspector({ selectedNode, onPatch }: Props) {
         </>
       )}
 
-      {type === 'condition' && (
-        <SearchSelect
-          label={t('inspector.contextField')}
-          value={String(selectedNode.data.field || 'updateAvailable')}
-          options={CONTEXT_FIELD_VALUES.map((value) => ({
+      {type === 'check_image_update' && (
+        <>
+          <label>
+            {t('inspector.agentScope')}
+            <select
+              style={inputStyle}
+              value={String(selectedNode.data.agentScope || 'all')}
+              onChange={(e) => patch('agentScope', e.target.value)}
+            >
+              <option value="all">{t('inspector.scopeAll')}</option>
+              <option value="labels">{t('inspector.scopeLabels')}</option>
+              <option value="single">{t('inspector.scopeSingle')}</option>
+            </select>
+          </label>
+          {String(selectedNode.data.agentScope || '') === 'labels' && (
+            field('agentLabels', t('inspector.agentLabels'), 'prod, eu-west')
+          )}
+          <SearchSelect
+            label={String(selectedNode.data.agentScope) === 'single'
+              ? t('inspector.agent')
+              : t('inspector.browseAgent')}
+            value={agentId}
+            options={agentOptions}
+            onChange={(v) => onPatch(id, { agentId: v, containerName: '' })}
+            placeholder={t('inspector.searchAgent')}
+            emptyLabel={t('inspector.selectAgent')}
+          />
+        </>
+      )}
+
+      {(type === 'if' || type === 'condition') && (() => {
+        const ifFields = getIfFieldsForPrev(previousType || null);
+        const saved = String(selectedNode.data.field || '');
+        const currentField = ifFields.includes(saved) ? saved : (ifFields[0] || '');
+        const fieldOptions: SearchOption[] = ifFields.map((value) => ({
+          value,
+          label: tt(t, 'contextFields', value),
+        }));
+        return (
+          <>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>
+              {previousNode
+                ? t('inspector.basedOnPrevious', { type: tt(t, 'nodes', previousType || 'notify') })
+                : t('inspector.noPreviousNode')}
+            </div>
+            {ifFields.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>{t('inspector.noBoolFields')}</div>
+            ) : (
+              <SearchSelect
+                label={t('inspector.contextField')}
+                value={currentField}
+                options={fieldOptions}
+                onChange={(v) => {
+                  if (v && ifFields.includes(v)) patch('field', v);
+                }}
+                placeholder={t('common.search')}
+                emptyLabel={tt(t, 'contextFields', ifFields[0])}
+              />
+            )}
+          </>
+        );
+      })()}
+
+      {type === 'case' && (() => {
+        const caseFields = getCaseFieldsForPrev(previousType || null);
+        const defaultField = caseFields[0]?.field || '';
+        const savedField = String(selectedNode.data.field || '');
+        const currentField = caseFields.some((f) => f.field === savedField)
+          ? savedField
+          : defaultField;
+        const fieldOptions: SearchOption[] = caseFields.map((f) => ({
+          value: f.field,
+          label: tt(t, 'contextFields', f.field),
+        }));
+        const matchValues = currentField
+          ? getCaseMatchValues(previousType || null, currentField)
+          : [];
+        const cases = Array.isArray(selectedNode.data.cases)
+          ? (selectedNode.data.cases as Array<{ id: string; match: string }>)
+          : [];
+        const usedMatches = new Set(cases.map((c) => c.match).filter(Boolean));
+        const nextUnused = matchValues.find((v) => !usedMatches.has(v)) || '';
+
+        const matchOptions = (): SearchOption[] =>
+          matchValues.map((value) => ({
             value,
-            label: tt(t, 'contextFields', value),
-          }))}
-          onChange={(v) => patch('field', v || 'updateAvailable')}
-          placeholder={t('common.search')}
-          emptyLabel={tt(t, 'contextFields', 'updateAvailable')}
-        />
+            label: portLabel(value),
+          }));
+
+        return (
+          <>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>
+              {previousNode
+                ? t('inspector.basedOnPrevious', { type: tt(t, 'nodes', previousType || 'notify') })
+                : t('inspector.noPreviousNode')}
+            </div>
+            {caseFields.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>{t('inspector.noEnumFields')}</div>
+            ) : (
+              <>
+                {caseFields.length > 1 && (
+                  <SearchSelect
+                    label={t('inspector.contextField')}
+                    value={currentField}
+                    options={fieldOptions}
+                    onChange={(v) => {
+                      const nextField = caseFields.some((f) => f.field === v) ? v : defaultField;
+                      const nextMatches = getCaseMatchValues(previousType || null, nextField);
+                      onPatch(id, {
+                        field: nextField,
+                        cases: nextMatches.slice(0, Math.max(1, nextMatches.length - (nextMatches.includes('error') ? 1 : 0))).map((m) => ({
+                          id: m,
+                          match: m,
+                        })),
+                      });
+                    }}
+                    placeholder={t('common.search')}
+                    emptyLabel={tt(t, 'contextFields', defaultField)}
+                  />
+                )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ fontWeight: 600 }}>{t('inspector.caseWhens')}</div>
+                  {cases.map((row, idx) => (
+                    <div key={row.id || idx} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <div style={{ flex: 1 }}>
+                        <SearchSelect
+                          label=""
+                          value={matchValues.includes(row.match) ? row.match : ''}
+                          options={matchOptions().filter(
+                            (o) => o.value === row.match || !usedMatches.has(o.value),
+                          )}
+                          onChange={(v) => {
+                            if (!v || !matchValues.includes(v)) return;
+                            const next = [...cases];
+                            next[idx] = { id: v, match: v };
+                            patch('cases', next);
+                          }}
+                          placeholder={t('inspector.caseMatch')}
+                          emptyLabel={t('inspector.caseMatch')}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        style={{ ...inputStyle, marginTop: 0, width: 'auto', cursor: 'pointer' }}
+                        onClick={() => {
+                          const next = [...cases];
+                          next.splice(idx, 1);
+                          patch('cases', next);
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    style={{ ...inputStyle, marginTop: 0, cursor: 'pointer' }}
+                    disabled={!nextUnused}
+                    onClick={() => {
+                      if (!nextUnused) return;
+                      patch('cases', [...cases, { id: nextUnused, match: nextUnused }]);
+                    }}
+                  >
+                    {t('inspector.addCase')}
+                  </button>
+                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>{t('inspector.caseElseHint')}</div>
+                </div>
+              </>
+            )}
+          </>
+        );
+      })()}
+
+      {type === 'split' && (
+        <label>
+          {t('inspector.targetsSource')}
+          <select
+            style={inputStyle}
+            value={String(selectedNode.data.targetsSource || 'context')}
+            onChange={(e) => patch('targetsSource', e.target.value)}
+          >
+            <option value="context">{t('inspector.targetsFromContext')}</option>
+            <option value="manual">{t('inspector.targetsManual')}</option>
+          </select>
+        </label>
       )}
 
       {type === 'notify' && (
         <>
-          {templateField('message', t('inspector.message'), {
-            placeholder: t('inspector.notifyPlaceholder'),
-          })}
+          {templatePicker('message', { placeholder: t('inspector.notifyPlaceholder') })}
           <label>
             {t('inspector.notifyLevel')}
             <select
@@ -414,6 +660,13 @@ export function NodeInspector({ selectedNode, onPatch }: Props) {
             </select>
           </label>
         </>
+      )}
+
+      {type === 'wait_approval' && (
+        templatePicker('message', {
+          messageLabel: t('inspector.approvalMessage'),
+          placeholder: t('inspector.approvalPlaceholder'),
+        })
       )}
 
       {type === 'webhook' && (
@@ -431,30 +684,7 @@ export function NodeInspector({ selectedNode, onPatch }: Props) {
               ))}
             </select>
           </label>
-          <label>
-            {t('inspector.templateKey')}
-            <select
-              style={inputStyle}
-              value={String(selectedNode.data.templateKey || '')}
-              onChange={(e) => {
-                const key = e.target.value;
-                const tpl = templates.find((x) => x.key === key);
-                onPatch(id, {
-                  templateKey: key,
-                  ...(tpl?.body ? { templateBody: tpl.body } : {}),
-                });
-              }}
-            >
-              <option value="">{t('inspector.selectTemplate')}</option>
-              {templates.map((tpl) => (
-                <option key={tpl.id} value={tpl.key}>{tpl.name} ({tpl.key})</option>
-              ))}
-            </select>
-          </label>
-          {templateField('templateBody', t('inspector.templateBody'), {
-            minHeight: 100,
-            placeholder: t('inspector.webhookPlaceholder'),
-          })}
+          {templatePicker('templateBody', { placeholder: t('inspector.webhookPlaceholder') })}
         </>
       )}
 

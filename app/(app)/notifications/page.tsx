@@ -84,6 +84,7 @@ export default function NotificationsPage() {
                       {tt(t, 'notifyLevel', n.level)}
                     </span>
                     {n.flowName ? <> · {n.flowName}</> : null}
+                    {n.agentName ? <> · {n.agentName}</> : null}
                     {n.containerName ? <> · {n.containerName}</> : null}
                     {n.image ? <> · {n.image}</> : null}
                     {n.flowRunId ? (

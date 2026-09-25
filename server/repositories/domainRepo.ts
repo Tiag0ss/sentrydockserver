@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, like, lt, or, sql } from 'drizzle-orm';
 import { db } from '../database/db';
 import {
   flowRuns,
@@ -88,10 +88,46 @@ export const auditRepo = {
   insert(row: typeof auditLogs.$inferInsert) {
     db.insert(auditLogs).values(row).run();
   },
-  list(limit: number, flowRunId?: string) {
-    let rows = db.select().from(auditLogs).orderBy(desc(auditLogs.ts)).limit(limit).all();
-    if (flowRunId) rows = rows.filter((r) => r.flowRunId === flowRunId);
-    return rows;
+  list(opts: {
+    limit: number;
+    flowRunId?: string;
+    action?: string;
+    actor?: string;
+    entity?: string;
+    q?: string;
+  }) {
+    const conditions = [];
+    if (opts.flowRunId) conditions.push(eq(auditLogs.flowRunId, opts.flowRunId));
+    if (opts.action) conditions.push(eq(auditLogs.action, opts.action));
+    if (opts.actor) conditions.push(eq(auditLogs.actor, opts.actor));
+    if (opts.entity) conditions.push(eq(auditLogs.entity, opts.entity));
+    if (opts.q) {
+      const needle = `%${opts.q.replace(/[%_]/g, '')}%`;
+      conditions.push(or(
+        like(auditLogs.action, needle),
+        like(auditLogs.actor, needle),
+        like(auditLogs.entity, needle),
+        like(auditLogs.entityId, needle),
+        like(auditLogs.flowRunId, needle),
+        like(auditLogs.payloadJson, needle),
+      ));
+    }
+    const query = db.select().from(auditLogs).orderBy(desc(auditLogs.ts)).limit(opts.limit);
+    if (conditions.length) {
+      return query.where(and(...conditions)).all();
+    }
+    return query.all();
+  },
+  facets() {
+    const actions = db.select({ value: auditLogs.action }).from(auditLogs)
+      .groupBy(auditLogs.action).orderBy(auditLogs.action).all().map((r) => r.value);
+    const actors = db.select({ value: auditLogs.actor }).from(auditLogs)
+      .groupBy(auditLogs.actor).orderBy(auditLogs.actor).all().map((r) => r.value);
+    const entities = db.select({ value: auditLogs.entity }).from(auditLogs)
+      .where(sql`${auditLogs.entity} IS NOT NULL AND ${auditLogs.entity} != ''`)
+      .groupBy(auditLogs.entity).orderBy(auditLogs.entity).all()
+      .map((r) => r.value).filter(Boolean) as string[];
+    return { actions, actors, entities };
   },
   deleteOlderThan(cutoff: Date) {
     db.delete(auditLogs).where(lt(auditLogs.ts, cutoff)).run();
@@ -189,6 +225,18 @@ export const webhooksRepo = {
   },
   insert(row: typeof webhookTriggers.$inferInsert) {
     db.insert(webhookTriggers).values(row).run();
+  },
+  update(id: string, patch: Partial<{
+    name: string;
+    flowId: string;
+    agentId: string | null;
+    enabled: boolean;
+    tokenHash: string;
+  }>) {
+    db.update(webhookTriggers).set(patch).where(eq(webhookTriggers.id, id)).run();
+  },
+  delete(id: string) {
+    db.delete(webhookTriggers).where(eq(webhookTriggers.id, id)).run();
   },
 };
 

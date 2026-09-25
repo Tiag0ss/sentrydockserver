@@ -18,7 +18,7 @@ type RunColors = { border: string; background: string; handle: string };
 export function FlowCard({ data, selected }: NodeProps) {
   const { t } = useI18n();
   const nodeType = String(data.nodeType || '');
-  const outputs = getNodeOutputs(nodeType);
+  const outputs = getNodeOutputs(nodeType, data as Record<string, unknown>);
   const multi = outputs.length > 1;
   const outPad = multi ? 78 : 52;
   const minH = Math.max(56, outputs.length * 22 + 28);

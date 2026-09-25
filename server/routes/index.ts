@@ -11,6 +11,7 @@ import {
   changePasswordSchema,
   createAgentSchema,
   createSecretSchema,
+  updateSecretSchema,
   createFlowSchema,
   updateFlowSchema,
   runFlowSchema,
@@ -25,6 +26,7 @@ import {
   updateAgentSchema,
   importBundleSchema,
   createWebhookTriggerSchema,
+  updateWebhookTriggerSchema,
   updateSettingSchema,
 } from '../validation/schemas';
 import * as authService from '../services/authService';
@@ -107,6 +109,10 @@ apiRouter.get('/secrets', authRequired, requirePasswordOk, (_req, res) => {
 apiRouter.post('/secrets', authRequired, requirePasswordOk, requireModify, validateBody(createSecretSchema), asyncHandler(async (req, res) => {
   const result = await secretsService.createSecret(req.body, req.user!.username);
   res.status(201).json(result);
+}));
+
+apiRouter.patch('/secrets/:id', authRequired, requirePasswordOk, requireModify, validateBody(updateSecretSchema), asyncHandler(async (req, res) => {
+  res.json(await secretsService.updateSecret(param(req), req.body, req.user!.username));
 }));
 
 apiRouter.delete('/secrets/:id', authRequired, requirePasswordOk, requireModify, asyncHandler(async (req, res) => {
@@ -246,6 +252,18 @@ apiRouter.post('/webhook-triggers', authRequired, requirePasswordOk, requireModi
   res.status(201).json(ops.createWebhookTrigger(req.body));
 });
 
+apiRouter.patch('/webhook-triggers/:id', authRequired, requirePasswordOk, requireModify, validateBody(updateWebhookTriggerSchema), (req, res) => {
+  res.json(ops.updateWebhookTrigger(param(req), req.body));
+});
+
+apiRouter.post('/webhook-triggers/:id/reset-token', authRequired, requirePasswordOk, requireModify, (req, res) => {
+  res.json(ops.resetWebhookTriggerToken(param(req)));
+});
+
+apiRouter.delete('/webhook-triggers/:id', authRequired, requirePasswordOk, requireModify, (req, res) => {
+  res.json(ops.deleteWebhookTrigger(param(req)));
+});
+
 apiRouter.post('/hooks/:id', hookLimiter, asyncHandler(async (req, res) => {
   const token = String(req.headers['x-sentrydock-token'] || req.query.token || '');
   const result = await ops.handleInboundWebhook(param(req), token, (req.body || {}) as Record<string, unknown>);
@@ -253,8 +271,15 @@ apiRouter.post('/hooks/:id', hookLimiter, asyncHandler(async (req, res) => {
 }));
 
 apiRouter.get('/logs', authRequired, requirePasswordOk, (req, res) => {
-  const limit = Math.min(Number(req.query.limit || 100), 500);
-  res.json(ops.listLogs(limit, req.query.flowRunId as string | undefined));
+  const limit = Math.min(Number(req.query.limit || 200), 500);
+  res.json(ops.listLogs({
+    limit,
+    flowRunId: req.query.flowRunId ? String(req.query.flowRunId) : undefined,
+    action: req.query.action ? String(req.query.action) : undefined,
+    actor: req.query.actor ? String(req.query.actor) : undefined,
+    entity: req.query.entity ? String(req.query.entity) : undefined,
+    q: req.query.q ? String(req.query.q) : undefined,
+  }));
 });
 
 apiRouter.get('/notifications', authRequired, requirePasswordOk, (req, res) => {

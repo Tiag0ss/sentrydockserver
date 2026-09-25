@@ -42,6 +42,13 @@ export const flows = sqliteTable('flows', {
   name: text('name').notNull(),
   description: text('description'),
   graphJson: text('graph_json').notNull(),
+  scheduleEnabled: integer('schedule_enabled', { mode: 'boolean' }).notNull().default(false),
+  cron: text('cron'),
+  timezone: text('timezone').default('Europe/Lisbon'),
+  blackoutStart: text('blackout_start'),
+  blackoutEnd: text('blackout_end'),
+  nextRunAt: integer('next_run_at', { mode: 'timestamp_ms' }),
+  lastRunAt: integer('last_run_at', { mode: 'timestamp_ms' }),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 });

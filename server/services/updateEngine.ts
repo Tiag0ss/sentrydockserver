@@ -6,15 +6,110 @@ import { startFlowRun } from './flowEngine';
 import { getSecretPlain } from './secretsService';
 import { audit } from './audit';
 import logger from '../utils/logger';
-import { policiesRepo, watchesRepo, updateEventsRepo, settingsRepo, auditRepo, notificationsRepo } from '../repositories/domainRepo';
+import {
+  policiesRepo, watchesRepo, updateEventsRepo, settingsRepo, auditRepo, notificationsRepo,
+} from '../repositories/domainRepo';
+import { flowsRepo } from '../repositories/flowsRepo';
+
+function migratePoliciesToFlowSchedules() {
+  let migrated = 0;
+  for (const policy of policiesRepo.list()) {
+    if (!policy.enabled || !policy.cron) continue;
+    const flow = flowsRepo.findById(policy.flowId);
+    if (!flow) {
+      policiesRepo.update(policy.id, { enabled: false });
+      continue;
+    }
+    if (!flow.scheduleEnabled) {
+      let next: Date | null = null;
+      try {
+        next = nextCronDate(policy.cron, policy.timezone || 'Europe/Lisbon', new Date());
+      } catch {
+        next = null;
+      }
+      flowsRepo.update(flow.id, {
+        scheduleEnabled: true,
+        cron: policy.cron,
+        timezone: policy.timezone || 'Europe/Lisbon',
+        blackoutStart: policy.blackoutStart,
+        blackoutEnd: policy.blackoutEnd,
+        nextRunAt: next,
+        updatedAt: new Date(),
+      });
+      migrated += 1;
+    }
+    // Desactivar policy legado para não duplicar tick / agenda
+    policiesRepo.update(policy.id, { enabled: false });
+  }
+  if (migrated) logger.info('migrated policies to flow schedules', { migrated });
+  return migrated;
+}
 
 export function scheduleUpdateEngine() {
-  // Tick every minute
+  try {
+    migratePoliciesToFlowSchedules();
+  } catch (e) {
+    logger.warn('policy→flow schedule migration skipped', {
+      err: e instanceof Error ? e.message : String(e),
+    });
+  }
   cron.schedule('* * * * *', () => {
-    void tickPolicies();
+    void tickFlowSchedules();
     void retainLogs();
   });
   logger.info('Update engine cron started');
+}
+
+async function tickFlowSchedules() {
+  const now = new Date();
+  for (const flow of flowsRepo.listScheduled()) {
+    if (!flow.cron) continue;
+    if (!flow.nextRunAt) {
+      const next = nextCronDate(flow.cron, flow.timezone || 'Europe/Lisbon', now);
+      flowsRepo.update(flow.id, { nextRunAt: next, updatedAt: now });
+      continue;
+    }
+    const due = flow.nextRunAt instanceof Date ? flow.nextRunAt : new Date(flow.nextRunAt);
+    if (due.getTime() > now.getTime()) continue;
+
+    const next = nextCronDate(flow.cron, flow.timezone || 'Europe/Lisbon', now);
+    flowsRepo.update(flow.id, {
+      lastRunAt: now,
+      nextRunAt: next,
+      updatedAt: now,
+    });
+
+    if (inBlackout(flow.timezone || 'Europe/Lisbon', flow.blackoutStart, flow.blackoutEnd, now)) {
+      await audit({
+        actor: 'system',
+        action: 'flow.schedule_blackout_skip',
+        entity: 'flow',
+        entityId: flow.id,
+      });
+      continue;
+    }
+
+    try {
+      await startFlowRun({
+        flowId: flow.id,
+        triggerSource: 'cron',
+        actor: 'system',
+        lockKey: `flow:${flow.id}`,
+      });
+    } catch (e) {
+      logger.error('scheduled flow start failed', {
+        flowId: flow.id,
+        err: e instanceof Error ? e.message : String(e),
+      });
+      await audit({
+        actor: 'system',
+        action: 'flow.schedule_failed',
+        entity: 'flow',
+        entityId: flow.id,
+        payload: { error: e instanceof Error ? e.message : String(e) },
+      });
+    }
+  }
 }
 
 async function tickPolicies() {
@@ -98,16 +193,16 @@ export async function runPolicyCheck(policyId: string) {
 
   const eventId = uuid();
   updateEventsRepo.insert({
-      id: eventId,
-      policyId: policy.id,
-      watchId: watch.id,
-      status: policy.mode === 'auto' ? 'executed' : 'pending',
-      oldDigest,
-      newDigest,
-      image: watch.image,
-      createdAt: new Date(),
-      resolvedAt: policy.mode === 'auto' ? new Date() : null,
-    });
+    id: eventId,
+    policyId: policy.id,
+    watchId: watch.id,
+    status: policy.mode === 'auto' ? 'executed' : 'pending',
+    oldDigest,
+    newDigest,
+    image: watch.image,
+    createdAt: new Date(),
+    resolvedAt: policy.mode === 'auto' ? new Date() : null,
+  });
 
   const ctx = {
     agentId: watch.agentId,
@@ -118,6 +213,15 @@ export async function runPolicyCheck(policyId: string) {
     newDigest,
     updateAvailable: true,
     policyId: policy.id,
+    targets: [{
+      agentId: watch.agentId,
+      containerName: watch.containerName,
+      image: watch.image,
+      oldDigest,
+      newDigest,
+    }],
+    lastOutcome: 'update',
+    lastResult: true,
   };
 
   if (policy.mode === 'auto') {

@@ -1,7 +1,7 @@
 'use client';
 
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
-import { useEffect } from 'react';
+import { forwardRef, useEffect } from 'react';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { useTheme } from '@/lib/theme/ThemeProvider';
 import {
@@ -48,9 +48,11 @@ export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
   return <select className="sd-select" {...props} />;
 }
 
-export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea className="sd-textarea" {...props} />;
-}
+export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(
+  function Textarea({ className = '', ...props }, ref) {
+    return <textarea ref={ref} className={`sd-textarea ${className}`.trim()} {...props} />;
+  },
+);
 
 export function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -150,6 +152,7 @@ export function Modal({
   children,
   footer,
   wide,
+  className = '',
 }: {
   open: boolean;
   title: string;
@@ -157,6 +160,7 @@ export function Modal({
   children: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
+  className?: string;
 }) {
   const { t } = useI18n();
 
@@ -185,11 +189,10 @@ export function Modal({
       }}
     >
       <div
-        className="sd-modal"
+        className={`sd-modal${wide ? ' sd-modal-wide' : ''} ${className}`.trim()}
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        style={wide ? { maxWidth: 640 } : undefined}
       >
         <div className="sd-modal-header">
           <h2>{title}</h2>

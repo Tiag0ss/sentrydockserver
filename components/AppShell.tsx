@@ -13,7 +13,6 @@ import { InstallAppPrompt } from '@/components/InstallAppPrompt';
 const NAV_KEYS = [
   { href: '/', key: 'nav.dashboard' },
   { href: '/flows', key: 'nav.flows' },
-  { href: '/policies', key: 'nav.policies' },
   { href: '/runs', key: 'nav.runs' },
   { href: '/agents', key: 'nav.agents' },
   { href: '/secrets', key: 'nav.secrets' },

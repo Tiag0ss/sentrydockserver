@@ -469,9 +469,16 @@ export function updateTemplate(id: string, input: { key?: string; name?: string;
   const rows = templatesRepo.list();
   const existing = rows.find((r) => r.id === id);
   if (!existing) throw new AppError(404, 'template not found', 'not_found');
-  if (existing.builtin) throw new AppError(400, 'cannot edit builtin template', 'builtin_readonly');
+  // Integrados: só nome/corpo; chave e apagar ficam bloqueados.
+  if (existing.builtin && input.key != null && input.key !== existing.key) {
+    throw new AppError(400, 'cannot rename key of builtin template', 'builtin_readonly');
+  }
+  if (input.key != null && input.key !== existing.key) {
+    const clash = templatesRepo.findByKey(input.key);
+    if (clash && clash.id !== id) throw new AppError(409, 'key already exists', 'duplicate_key');
+  }
   templatesRepo.update(id, {
-    ...(input.key != null ? { key: input.key } : {}),
+    ...(input.key != null && !existing.builtin ? { key: input.key } : {}),
     ...(input.name != null ? { name: input.name } : {}),
     ...(input.body != null ? { body: input.body } : {}),
   });
@@ -567,10 +574,17 @@ export function updateAgentLabels(id: string, labels: string[]) {
 }
 
 export function listWebhookTriggers() {
-  return webhooksRepo.listMeta();
+  const names = flowNameMap();
+  return webhooksRepo.listMeta().map((h) => ({
+    ...h,
+    flowName: names.get(h.flowId) || null,
+    url: `/api/hooks/${h.id}`,
+  }));
 }
 
 export function createWebhookTrigger(input: { name?: string; flowId: string; agentId?: string | null }) {
+  const flow = flowsRepo.findById(input.flowId);
+  if (!flow) throw new AppError(400, 'flow not found', 'flow_not_found');
   const token = randomToken(24);
   const id = uuid();
   webhooksRepo.insert({
@@ -583,6 +597,49 @@ export function createWebhookTrigger(input: { name?: string; flowId: string; age
     createdAt: new Date(),
   });
   return { id, token, url: `/api/hooks/${id}` };
+}
+
+export function updateWebhookTrigger(
+  id: string,
+  input: { name?: string; flowId?: string; enabled?: boolean; agentId?: string | null },
+) {
+  const existing = webhooksRepo.findById(id);
+  if (!existing) throw new AppError(404, 'not found', 'not_found');
+  const patch: Parameters<typeof webhooksRepo.update>[1] = {};
+  if (input.name != null) patch.name = String(input.name).trim() || existing.name;
+  if (input.flowId != null) {
+    const flow = flowsRepo.findById(input.flowId);
+    if (!flow) throw new AppError(400, 'flow not found', 'flow_not_found');
+    patch.flowId = input.flowId;
+  }
+  if (input.enabled != null) patch.enabled = Boolean(input.enabled);
+  if (input.agentId !== undefined) patch.agentId = input.agentId;
+  webhooksRepo.update(id, patch);
+  const row = webhooksRepo.findById(id)!;
+  return {
+    id: row.id,
+    name: row.name,
+    flowId: row.flowId,
+    flowName: flowsRepo.findById(row.flowId)?.name || null,
+    agentId: row.agentId,
+    enabled: row.enabled,
+    url: `/api/hooks/${row.id}`,
+  };
+}
+
+export function resetWebhookTriggerToken(id: string) {
+  const existing = webhooksRepo.findById(id);
+  if (!existing) throw new AppError(404, 'not found', 'not_found');
+  const token = randomToken(24);
+  webhooksRepo.update(id, { tokenHash: hashToken(token) });
+  return { id, token, url: `/api/hooks/${id}` };
+}
+
+export function deleteWebhookTrigger(id: string) {
+  const existing = webhooksRepo.findById(id);
+  if (!existing) throw new AppError(404, 'not found', 'not_found');
+  webhooksRepo.delete(id);
+  return { ok: true };
 }
 
 export async function handleInboundWebhook(
@@ -619,11 +676,89 @@ export async function handleInboundWebhook(
   }
 }
 
-export function listLogs(limit: number, flowRunId?: string) {
-  return auditRepo.list(limit, flowRunId).map((r) => ({
-    ...r,
-    payload: r.payloadJson ? JSON.parse(r.payloadJson) : null,
-  }));
+export function listLogs(opts: {
+  limit?: number;
+  flowRunId?: string;
+  action?: string;
+  actor?: string;
+  entity?: string;
+  q?: string;
+} | number = 100, flowRunIdLegacy?: string) {
+  // Compat: listLogs(limit, flowRunId)
+  const params = typeof opts === 'number'
+    ? { limit: opts, flowRunId: flowRunIdLegacy }
+    : opts;
+  const limit = Math.min(Math.max(Number(params.limit || 100), 1), 500);
+  const rows = auditRepo.list({
+    limit,
+    flowRunId: params.flowRunId || undefined,
+    action: params.action || undefined,
+    actor: params.actor || undefined,
+    entity: params.entity || undefined,
+    q: params.q?.trim() || undefined,
+  });
+
+  const runIds = [...new Set(rows.map((r) => r.flowRunId).filter(Boolean))] as string[];
+  const flowByRun = new Map<string, { flowId: string; flowName: string }>();
+  for (const runId of runIds) {
+    const run = runsRepo.findById(runId);
+    if (!run) continue;
+    const flow = flowsRepo.findById(run.flowId);
+    flowByRun.set(runId, {
+      flowId: run.flowId,
+      flowName: flow?.name || run.flowId.slice(0, 8),
+    });
+  }
+
+  const items = rows.map((r) => {
+    const payload = r.payloadJson ? (() => {
+      try { return JSON.parse(r.payloadJson!); } catch { return null; }
+    })() : null;
+    const flowMeta = r.flowRunId ? flowByRun.get(r.flowRunId) : null;
+    return {
+      id: r.id,
+      ts: r.ts,
+      actor: r.actor,
+      action: r.action,
+      entity: r.entity,
+      entityId: r.entityId,
+      flowRunId: r.flowRunId,
+      flowId: flowMeta?.flowId ?? null,
+      flowName: flowMeta?.flowName ?? null,
+      payload,
+      summary: summarizeAuditPayload(r.action, payload),
+      level: auditLevel(r.action),
+    };
+  });
+
+  return {
+    items,
+    facets: auditRepo.facets(),
+  };
+}
+
+function auditLevel(action: string): 'ok' | 'warn' | 'danger' | 'info' {
+  if (/fail|error|reject|abort|delete/i.test(action)) return 'danger';
+  if (/interrupt|blackout|offline|waiting|approval|warn/i.test(action)) return 'warn';
+  if (/success|online|created|approved|notify/i.test(action)) return 'ok';
+  return 'info';
+}
+
+function summarizeAuditPayload(action: string, payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const p = payload as Record<string, unknown>;
+  const bits: string[] = [];
+  if (typeof p.message === 'string' && p.message.trim()) bits.push(p.message.trim().slice(0, 160));
+  if (typeof p.type === 'string') bits.push(p.type);
+  if (typeof p.branch === 'string') bits.push(`→ ${p.branch}`);
+  if (typeof p.outcome === 'string') bits.push(p.outcome);
+  if (typeof p.agentName === 'string') bits.push(p.agentName);
+  if (typeof p.hostname === 'string') bits.push(p.hostname);
+  if (typeof p.error === 'string') bits.push(p.error.slice(0, 120));
+  if (typeof p.level === 'string' && action === 'notify') bits.push(p.level);
+  if (p.dryRun === true) bits.push('dry-run');
+  if (typeof p.attempts === 'number' && p.attempts > 1) bits.push(`×${p.attempts}`);
+  return bits.length ? bits.join(' · ') : null;
 }
 
 export {
@@ -639,10 +774,17 @@ export function getDashboard() {
   const graphs = flowGraphMap();
   const active = runsRepo.active();
   const history = runsRepo.list('history').slice(0, 200);
-  const upcoming = policiesRepo.listEnabled()
-    .filter((p) => p.nextRunAt)
+  const upcoming = flowsRepo.listScheduled()
+    .filter((f) => f.nextRunAt)
     .sort((a, b) => (a.nextRunAt!.getTime() - b.nextRunAt!.getTime()))
-    .slice(0, 20);
+    .slice(0, 20)
+    .map((f) => ({
+      id: f.id,
+      name: f.name,
+      nextRunAt: f.nextRunAt!,
+      cron: f.cron || '',
+      timezone: f.timezone || 'Europe/Lisbon',
+    }));
   const agentRows = agentsRepo.list();
   const pendingUpdates = updateEventsRepo.listPending();
 
@@ -651,7 +793,14 @@ export function getDashboard() {
 
   return {
     activeRuns: executing.map((r) => enrichRun(r, names, graphs)),
-    upcomingPolicies: upcoming,
+    upcomingPolicies: upcoming
+      .map((f) => ({
+        id: f.id,
+        name: f.name,
+        nextRunAt: f.nextRunAt,
+        cron: f.cron,
+        timezone: f.timezone,
+      })),
     history: history.map((r) => enrichRun(r, names, graphs)),
     agents: agentRows.map((a) => {
       let meta: Record<string, unknown> | null = null;

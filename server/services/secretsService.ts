@@ -2,6 +2,7 @@ import { v4 as uuid } from 'uuid';
 import { secretsRepo } from '../repositories/secretsRepo';
 import { encryptSecret, decryptSecret } from './crypto';
 import { audit } from './audit';
+import { AppError } from '../utils/errors';
 
 export function listSecrets() {
   return secretsRepo.listMeta();
@@ -26,7 +27,48 @@ export async function createSecret(
   return { id, name: input.name, type: input.type };
 }
 
+export async function updateSecret(
+  id: string,
+  input: { name?: string; value?: string | Record<string, unknown> },
+  actor: string,
+) {
+  const existing = secretsRepo.findById(id);
+  if (!existing) throw new AppError(404, 'not found', 'not_found');
+
+  const patch: { name?: string; ciphertext?: string; updatedAt: Date } = {
+    updatedAt: new Date(),
+  };
+  if (input.name != null) {
+    const name = String(input.name).trim();
+    if (!name) throw new AppError(400, 'name required', 'invalid_name');
+    patch.name = name;
+  }
+  if (input.value !== undefined) {
+    const plain = typeof input.value === 'string' ? input.value : JSON.stringify(input.value);
+    if (!plain || (typeof input.value === 'string' && !plain.trim())) {
+      throw new AppError(400, 'value required', 'invalid_value');
+    }
+    patch.ciphertext = encryptSecret(plain);
+  }
+  if (patch.name == null && patch.ciphertext == null) {
+    throw new AppError(400, 'nothing to update', 'empty_patch');
+  }
+
+  secretsRepo.update(id, patch);
+  await audit({
+    actor,
+    action: 'secret.updated',
+    entity: 'secret',
+    entityId: id,
+    payload: { nameChanged: patch.name != null, valueRotated: patch.ciphertext != null },
+  });
+  const row = secretsRepo.findById(id)!;
+  return { id: row.id, name: row.name, type: row.type };
+}
+
 export async function deleteSecret(id: string, actor: string) {
+  const existing = secretsRepo.findById(id);
+  if (!existing) throw new AppError(404, 'not found', 'not_found');
   secretsRepo.delete(id);
   await audit({ actor, action: 'secret.deleted', entity: 'secret', entityId: id });
 }

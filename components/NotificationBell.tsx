@@ -15,6 +15,7 @@ export type NotificationItem = {
   flowId: string | null;
   flowName: string | null;
   agentId: string | null;
+  agentName?: string | null;
   containerName: string | null;
   image: string | null;
   readAt: string | Date | null;
@@ -221,12 +222,13 @@ export function NotificationBell() {
                   <div style={{ color: 'var(--muted)', fontSize: 11, marginTop: 4 }}>
                     {formatDate(n.ts)}
                     {n.flowName ? ` · ${n.flowName}` : ''}
+                    {n.agentName ? ` · ${n.agentName}` : ''}
                     {n.containerName ? ` · ${n.containerName}` : ''}
                     {n.flowRunId && (
                       <>
                         {' · '}
                         <Link href={`/runs/${n.flowRunId}`} onClick={(e) => e.stopPropagation()}>
-                          {n.flowRunId.slice(0, 8)}…
+                          {t('notifications.openRun')}
                         </Link>
                       </>
                     )}

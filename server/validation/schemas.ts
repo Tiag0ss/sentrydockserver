@@ -34,16 +34,31 @@ export const createSecretSchema = z.object({
   value: z.union([z.string().min(1), z.record(z.unknown())]),
 });
 
+export const updateSecretSchema = z.object({
+  name: z.string().min(1).optional(),
+  value: z.union([z.string().min(1), z.record(z.unknown())]).optional(),
+}).refine((v) => v.name != null || v.value != null, { message: 'name or value required' });
+
 export const createFlowSchema = z.object({
   name: z.string().optional(),
   description: z.string().nullable().optional(),
   graph: z.unknown().optional(),
+  scheduleEnabled: z.boolean().optional(),
+  cron: z.string().nullable().optional(),
+  timezone: z.string().nullable().optional(),
+  blackoutStart: z.string().nullable().optional(),
+  blackoutEnd: z.string().nullable().optional(),
 });
 
 export const updateFlowSchema = z.object({
   name: z.string().optional(),
   description: z.string().nullable().optional(),
   graph: z.unknown().optional(),
+  scheduleEnabled: z.boolean().optional(),
+  cron: z.string().nullable().optional(),
+  timezone: z.string().nullable().optional(),
+  blackoutStart: z.string().nullable().optional(),
+  blackoutEnd: z.string().nullable().optional(),
 });
 
 export const runFlowSchema = z.object({
@@ -123,6 +138,13 @@ export const importBundleSchema = z.object({
 export const createWebhookTriggerSchema = z.object({
   name: z.string().optional(),
   flowId: z.string().min(1),
+  agentId: z.string().nullable().optional(),
+});
+
+export const updateWebhookTriggerSchema = z.object({
+  name: z.string().min(1).optional(),
+  flowId: z.string().min(1).optional(),
+  enabled: z.boolean().optional(),
   agentId: z.string().nullable().optional(),
 });
 

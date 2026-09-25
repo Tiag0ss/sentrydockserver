@@ -2,10 +2,13 @@ import { v4 as uuid } from 'uuid';
 import { flowsRepo } from '../repositories/flowsRepo';
 import { runsRepo } from '../repositories/domainRepo';
 import { templatesRepo } from '../repositories/domainRepo';
+import { agentsRepo } from '../repositories/agentsRepo';
 import { agentGateway } from './agentGateway';
 import { audit } from './audit';
 import { getSecretPlain } from './secretsService';
 import { createNotification } from './notificationsService';
+import { migrateFlowGraph } from './flowGraphMigrate';
+import { humanizeDisplayText, shortDigest } from '../utils/displayHumanize';
 import logger from '../utils/logger';
 
 export type FlowNode = {
@@ -43,7 +46,22 @@ function finalizeRunStatus(ctx: RunContext): 'success' | 'failed' | 'rejected' {
 }
 
 function parseGraph(json: string): FlowGraph {
-  return JSON.parse(json) as FlowGraph;
+  const raw = JSON.parse(json) as FlowGraph;
+  const migrated = migrateFlowGraph(raw);
+  return {
+    nodes: migrated.nodes.map((n) => ({
+      id: n.id,
+      type: String(n.type || n.data?.nodeType || 'notify'),
+      data: (n.data || {}) as Record<string, unknown>,
+      position: n.position,
+    })),
+    edges: migrated.edges.map((e, i) => ({
+      id: String(e.id || `e-${i}`),
+      source: e.source,
+      target: e.target,
+      sourceHandle: e.sourceHandle,
+    })),
+  };
 }
 
 function getRetries(node: FlowNode): number {
@@ -51,9 +69,55 @@ function getRetries(node: FlowNode): number {
   return Number.isFinite(r) ? Math.max(0, r) : 0;
 }
 
-function renderTemplate(body: string, ctx: RunContext): string {
+function extractHumanMessage(body: string): string {
+  const trimmed = String(body || '').trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const obj = parsed as Record<string, unknown>;
+        if (typeof obj.text === 'string') return obj.text;
+        if (typeof obj.message === 'string') return obj.message;
+      }
+    } catch {
+      /* corpo não-JSON */
+    }
+  }
+  return trimmed;
+}
+
+function resolveNodeMessage(
+  node: FlowNode,
+  fallback = '',
+): { raw: string; templateKey: string | null } {
+  const templateKey = String(node.data.templateKey || '').trim();
+  let raw = String(node.data.message || fallback);
+  if (templateKey) {
+    const tpl = templatesRepo.findByKey(templateKey);
+    if (tpl?.body) raw = extractHumanMessage(tpl.body);
+  }
+  return { raw, templateKey: templateKey || null };
+}
+
+function renderTemplate(body: string, ctx: RunContext, opts?: { human?: boolean }): string {
+  const vars: Record<string, unknown> = { ...ctx };
+  if (opts?.human) {
+    const agentId = ctx.agentId != null ? String(ctx.agentId) : '';
+    if (agentId) {
+      const name = agentsRepo.findById(agentId)?.name;
+      if (name) {
+        vars.agentName = name;
+        // Templates antigos usam {{agentId}} — na UI preferimos o nome.
+        vars.agentId = name;
+      }
+    }
+    for (const key of ['newDigest', 'oldDigest', 'previousDigest'] as const) {
+      if (typeof vars[key] === 'string') vars[key] = shortDigest(String(vars[key]));
+    }
+  }
   return body.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
-    const v = ctx[key];
+    const v = vars[key];
     if (v == null) return '';
     if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return String(v);
     try {
@@ -124,22 +188,107 @@ function entryNodes(graph: FlowGraph): FlowNode[] {
 
 function nextNodes(graph: FlowGraph, nodeId: string, handle?: string): FlowNode[] {
   const source = graph.nodes.find((n) => n.id === nodeId);
+  const type = normalizeNodeType(source?.type || '');
   const from = graph.edges.filter((e) => e.source === nodeId);
   const wanted = handle !== undefined
-    ? normalizeHandleId(source?.type || '', handle)
-    : 'ok';
-  const edges = from.filter((e) => normalizeHandleId(source?.type || '', e.sourceHandle) === wanted);
+    ? normalizeHandleId(type, handle, source?.data)
+    : defaultOutHandle(type);
+  const edges = from.filter((e) => normalizeHandleId(type, e.sourceHandle, source?.data) === wanted);
   return edges
     .map((e) => graph.nodes.find((n) => n.id === e.target))
     .filter(Boolean) as FlowNode[];
 }
 
-function normalizeHandleId(type: string, handle: string | null | undefined): string {
-  if (handle === 'out' || handle === 'success' || !handle) {
-    if (type === 'check_image_update') return 'update'; // shouldn't default here for branching
-    return 'ok';
+function normalizeNodeType(type: string): string {
+  if (type === 'condition') return 'if';
+  return type;
+}
+
+const ACTION_TYPES = new Set([
+  'check_image_update', 'pull_image', 'recreate_container', 'compose_up', 'compose_down',
+  'notify', 'webhook', 'wait_approval', 'split', 'join', 'wait_healthy', 'rollback',
+]);
+
+function defaultOutHandle(type: string): string {
+  if (type === 'if') return 'true';
+  if (type === 'case') return 'else';
+  return 'out';
+}
+
+function normalizeHandleId(
+  type: string,
+  handle: string | null | undefined,
+  data?: Record<string, unknown>,
+): string {
+  const t = normalizeNodeType(type);
+  if (t === 'if') {
+    if (handle === 'true' || handle === 'false') return handle;
+    return 'false';
   }
+  if (t === 'case') {
+    if (handle && handle !== 'out' && handle !== 'ok' && handle !== 'success') return handle;
+    return 'else';
+  }
+  if (ACTION_TYPES.has(t)) return 'out';
+  if (!handle || handle === 'out' || handle === 'success' || handle === 'ok') return 'out';
   return handle;
+}
+
+function setLastOutcome(ctx: RunContext, outcome: string, result?: boolean) {
+  ctx.lastOutcome = outcome;
+  const okOutcomes = new Set(['ok', 'update', 'approved', 'healthy', 'true']);
+  ctx.lastResult = result ?? okOutcomes.has(outcome);
+}
+
+function parseCaseWhens(data: Record<string, unknown>): Array<{ id: string; match: string }> {
+  const raw = data.cases;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((c) => {
+      if (!c || typeof c !== 'object') return null;
+      const row = c as Record<string, unknown>;
+      const id = String(row.id || row.match || '').trim();
+      const match = String(row.match ?? row.id ?? '').trim();
+      if (!id) return null;
+      return { id, match: match || id };
+    })
+    .filter(Boolean) as Array<{ id: string; match: string }>;
+}
+
+function agentLabelsOf(metaJson: string | null | undefined): string[] {
+  if (!metaJson) return [];
+  try {
+    const meta = JSON.parse(metaJson) as { labels?: unknown };
+    return Array.isArray(meta.labels) ? meta.labels.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function resolveScopedAgents(node: FlowNode): Array<{ id: string; name: string }> {
+  const scope = String(node.data.agentScope || (node.data.agentId ? 'single' : 'all'));
+  const wantLabels = Array.isArray(node.data.agentLabels)
+    ? (node.data.agentLabels as unknown[]).map(String).filter(Boolean)
+    : String(node.data.agentLabels || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+  if (scope === 'single') {
+    const id = String(node.data.agentId || '');
+    return id ? [{ id, name: id }] : [];
+  }
+
+  const rows = agentsRepo.list().filter((a) => agentGateway.isOnline(a.id));
+  if (scope === 'labels' && wantLabels.length) {
+    return rows
+      .filter((a) => {
+        const labels = agentLabelsOf(a.metaJson);
+        return wantLabels.every((l) => labels.includes(l));
+      })
+      .map((a) => ({ id: a.id, name: a.name }));
+  }
+  return rows.map((a) => ({ id: a.id, name: a.name }));
 }
 
 async function upsertStep(runId: string, nodeId: string, branchId: string | null, status: string, patch: Partial<{
@@ -217,8 +366,8 @@ export async function userContinueRun(runId: string, opts: { continue: boolean; 
 
   if (run.status === 'waiting_approval') {
     const decision = opts.continue ? 'approved' : 'rejected';
-    ctx.__nextHandle = decision;
     ctx.approvalDecision = decision;
+    setLastOutcome(ctx, decision, decision === 'approved');
     if (decision === 'rejected') {
       setRunOutcome(ctx, 'rejected');
       ctx.error = 'rejected';
@@ -335,58 +484,86 @@ async function executeNode(
 
       switch (node.type) {
         case 'check_image_update': {
-          const agentId = String(node.data.agentId || ctx.agentId || '');
           const image = String(node.data.image || ctx.image || '');
           const containerName = String(node.data.containerName || ctx.containerName || '');
           const auth = await getRegistryAuth(String(node.data.secretId || ctx.secretId || '') || null);
-          // Compare digests of the *running* image vs remote registry (not container Id).
-          const check = await agentGateway.sendCommand(
-            agentId,
-            'image.checkUpdate',
-            {
-              id: containerName,
-              containerId: containerName,
-              image,
-              auth,
-            },
-            300_000,
-          ) as {
-            updateAvailable?: boolean;
-            remoteDigest?: string;
-            remoteDigests?: string[];
-            localDigests?: string[];
-            imageId?: string;
-            remoteSource?: string;
-            image?: string;
-            configImage?: string;
-          };
-          const updateAvailable = Boolean(check.updateAvailable);
-          const oldDigest = check.localDigests?.[0] || check.imageId || '';
-          const newDigest = check.remoteDigest || '';
-          const resolvedImage = String(check.image || image || '');
-          const configImage = String(check.configImage || '');
+          const agents = resolveScopedAgents(node);
+          const targets: Array<{
+            agentId: string;
+            containerName: string;
+            image: string;
+            oldDigest: string;
+            newDigest: string;
+          }> = [];
+          let lastErr = '';
+
+          for (const agent of agents) {
+            try {
+              const check = await agentGateway.sendCommand(
+                agent.id,
+                'image.checkUpdate',
+                {
+                  id: containerName,
+                  containerId: containerName,
+                  image,
+                  auth,
+                },
+                300_000,
+              ) as {
+                updateAvailable?: boolean;
+                remoteDigest?: string;
+                remoteDigests?: string[];
+                localDigests?: string[];
+                imageId?: string;
+                image?: string;
+                configImage?: string;
+              };
+              if (check.updateAvailable) {
+                targets.push({
+                  agentId: agent.id,
+                  containerName,
+                  image: String(check.image || image || ''),
+                  oldDigest: check.localDigests?.[0] || check.imageId || '',
+                  newDigest: check.remoteDigest || '',
+                });
+              }
+            } catch (err) {
+              lastErr = err instanceof Error ? err.message : String(err);
+              logger.warn('check_image_update agent failed', { agentId: agent.id, err: lastErr });
+            }
+          }
+
+          const updateAvailable = targets.length > 0;
+          const first = targets[0];
           Object.assign(ctx, {
             updateAvailable,
-            oldDigest,
-            newDigest,
-            image: resolvedImage || image,
-            agentId,
+            targets,
+            oldDigest: first?.oldDigest || '',
+            newDigest: first?.newDigest || '',
+            image: first?.image || image,
             containerName,
-            ...(configImage && !/^sha256:/i.test(configImage) ? { previousImage: configImage } : {}),
-            __nextHandle: updateAvailable ? 'update' : 'no_update',
+            agentId: first?.agentId || agents[0]?.id || ctx.agentId,
+            secretId: node.data.secretId || ctx.secretId,
           });
+          if (updateAvailable) {
+            setLastOutcome(ctx, 'update', true);
+          } else if (agents.length === 0 || (lastErr && targets.length === 0 && agents.length > 0)) {
+            setLastOutcome(ctx, 'error', false);
+            if (lastErr) recordNodeFailure(ctx, node, lastErr);
+          } else {
+            setLastOutcome(ctx, 'no_update', false);
+          }
           await upsertStep(runId, node.id, branchId, 'success', {
             finishedAt: new Date(),
             detailJson: detailJson({
-              agentId,
               containerName,
-              image: resolvedImage || image,
+              image,
               updateAvailable,
-              oldDigest,
-              newDigest,
-              remoteDigests: check.remoteDigests || (newDigest ? [newDigest] : []),
-              reason: updateAvailable ? 'digest_mismatch' : 'up_to_date',
-              branch: updateAvailable ? 'update' : 'no_update',
+              targetsCount: targets.length,
+              agentsChecked: agents.length,
+              oldDigest: first?.oldDigest,
+              newDigest: first?.newDigest,
+              reason: updateAvailable ? 'digest_mismatch' : (lastErr || 'up_to_date'),
             }),
           });
           await audit({
@@ -395,7 +572,7 @@ async function executeNode(
             entity: 'flow_node',
             entityId: node.id,
             flowRunId: runId,
-            payload: { type: node.type, attempts },
+            payload: { type: node.type, attempts, targets: targets.length },
           });
           return 'success';
         }
@@ -504,7 +681,9 @@ async function executeNode(
         }
         case 'notify': {
           try {
-            let message = renderTemplate(String(node.data.message || 'notify'), ctx);
+            const { raw, templateKey } = resolveNodeMessage(node, 'notify');
+            let message = renderTemplate(raw, ctx, { human: true });
+            message = humanizeDisplayText(message);
             if (dryRun) message = `[dry-run] ${message}`;
             createNotification({
               message,
@@ -514,7 +693,11 @@ async function executeNode(
             });
             await upsertStep(runId, node.id, branchId, 'success', {
               finishedAt: new Date(),
-              detailJson: detailJson({ message: message.slice(0, 500), dryRun: dryRun || undefined }),
+              detailJson: detailJson({
+                message: message.slice(0, 500),
+                templateKey: templateKey || undefined,
+                dryRun: dryRun || undefined,
+              }),
             });
             await audit({
               actor: 'system',
@@ -566,6 +749,7 @@ async function executeNode(
             });
             if (!res.ok) {
               ctx.__nextHandle = 'error';
+            setLastOutcome(ctx, 'error', false);
               await upsertStep(runId, node.id, branchId, 'failed', {
                 lastError: `Webhook HTTP ${res.status}`,
                 finishedAt: new Date(),
@@ -601,6 +785,7 @@ async function executeNode(
             const msg = err instanceof Error ? err.message : String(err);
             logger.warn('webhook failed (ignored for run outcome)', { runId, err: msg });
             ctx.__nextHandle = 'error';
+            setLastOutcome(ctx, 'error', false);
             await upsertStep(runId, node.id, branchId, 'failed', {
               lastError: msg,
               finishedAt: new Date(),
@@ -620,9 +805,30 @@ async function executeNode(
           }
         }
         case 'wait_approval': {
+          const { raw, templateKey } = resolveNodeMessage(node, '');
+          const message = raw
+            ? humanizeDisplayText(renderTemplate(raw, ctx, { human: true }))
+            : '';
+          if (message && !dryRun) {
+            try {
+              createNotification({
+                message,
+                flowRunId: runId,
+                level: 'warn',
+                ctx,
+              });
+            } catch (err) {
+              logger.warn('wait_approval notify failed', {
+                runId,
+                err: err instanceof Error ? err.message : String(err),
+              });
+            }
+          }
           runsRepo.update(runId, { status: 'waiting_approval' });
           await upsertStep(runId, node.id, branchId, 'running', {
             detailJson: detailJson({
+              message: message || undefined,
+              templateKey: templateKey || undefined,
               image: ctx.image ? String(ctx.image) : undefined,
               containerName: ctx.containerName ? String(ctx.containerName) : undefined,
               oldDigest: ctx.oldDigest ? String(ctx.oldDigest) : undefined,
@@ -632,20 +838,19 @@ async function executeNode(
           });
           return 'waiting';
         }
+        case 'if':
         case 'condition': {
-          const field = String(node.data.field || 'updateAvailable');
-          const value = Boolean(ctx[field]);
+          const field = String(node.data.field || 'lastResult');
+          const raw = ctx[field];
+          const value = typeof raw === 'boolean' ? raw : Boolean(raw);
           ctx.__nextHandle = value ? 'true' : 'false';
+          setLastOutcome(ctx, value ? 'true' : 'false', value);
           await upsertStep(runId, node.id, branchId, 'success', {
             finishedAt: new Date(),
             detailJson: detailJson({
               field,
               value,
               branch: value ? 'true' : 'false',
-              image: ctx.image ? String(ctx.image) : undefined,
-              containerName: ctx.containerName ? String(ctx.containerName) : undefined,
-              oldDigest: ctx.oldDigest ? String(ctx.oldDigest) : undefined,
-              newDigest: ctx.newDigest ? String(ctx.newDigest) : undefined,
             }),
           });
           await audit({
@@ -654,7 +859,32 @@ async function executeNode(
             entity: 'flow_node',
             entityId: node.id,
             flowRunId: runId,
-            payload: { type: node.type, attempts },
+            payload: { type: 'if', attempts },
+          });
+          return 'success';
+        }
+        case 'case': {
+          const field = String(node.data.field || 'lastOutcome');
+          const raw = ctx[field];
+          const value = raw == null ? '' : String(raw);
+          const whens = parseCaseWhens(node.data);
+          const hit = whens.find((w) => w.match === value);
+          ctx.__nextHandle = hit ? hit.id : 'else';
+          await upsertStep(runId, node.id, branchId, 'success', {
+            finishedAt: new Date(),
+            detailJson: detailJson({
+              field,
+              value,
+              branch: String(ctx.__nextHandle),
+            }),
+          });
+          await audit({
+            actor: 'system',
+            action: 'flow_node.success',
+            entity: 'flow_node',
+            entityId: node.id,
+            flowRunId: runId,
+            payload: { type: 'case', attempts, branch: ctx.__nextHandle },
           });
           return 'success';
         }
@@ -714,7 +944,7 @@ async function executeNode(
               });
             }
           }
-          ctx.__nextHandle = healthy ? 'healthy' : 'timeout';
+          setLastOutcome(ctx, healthy ? 'healthy' : 'timeout', healthy);
           await upsertStep(runId, node.id, branchId, 'success', {
             finishedAt: new Date(),
             detailJson: detailJson({
@@ -850,7 +1080,7 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
     let queue: FlowNode[];
     if (opts?.afterUserContinue && run.currentNodeId) {
       const cur = graph.nodes.find((n) => n.id === run.currentNodeId);
-      const handle = String(ctx.__nextHandle || 'ok');
+      const handle = String(ctx.__nextHandle || 'out');
       delete ctx.__nextHandle;
       queue = cur ? nextNodes(graph, cur.id, handle) : entryNodes(graph);
     } else {
@@ -865,10 +1095,15 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
       visited.add(node.id);
 
       if (node.type === 'split') {
-        const targets = (node.data.targets as Array<{ agentId: string; containerName?: string; image?: string }>) || [];
-        const branchNodes = nextNodes(graph, node.id);
-        const joinNode = graph.nodes.find((n) => n.type === 'join' && nextNodes(graph, node.id).some(() => true));
-        // Find join reachable from split
+        const fromContext = String(node.data.targetsSource || '') === 'context'
+          || !Array.isArray(node.data.targets)
+          || (node.data.targets as unknown[]).length === 0;
+        const targets = (
+          fromContext && Array.isArray(ctx.targets)
+            ? ctx.targets
+            : (node.data.targets || [])
+        ) as Array<{ agentId: string; containerName?: string; image?: string }>;
+        const branchNodes = nextNodes(graph, node.id, 'out');
         const findJoin = (): FlowNode | undefined => {
           const q = [...branchNodes];
           const seen = new Set<string>();
@@ -877,29 +1112,43 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
             if (seen.has(n.id)) continue;
             seen.add(n.id);
             if (n.type === 'join') return n;
-            q.push(...nextNodes(graph, n.id));
+            q.push(...nextNodes(graph, n.id, 'out'));
           }
-          return joinNode;
+          return undefined;
         };
         const join = findJoin();
+
+        if (targets.length === 0) {
+          setLastOutcome(ctx, 'ok', true);
+          ctx.branchResults = [];
+          if (join) {
+            await upsertStep(runId, join.id, null, 'success', { finishedAt: new Date() });
+            queue.push(...nextNodes(graph, join.id, 'out'));
+          }
+          continue;
+        }
 
         const branches = targets.map((t) => {
           const id = uuid();
           runsRepo.insertBranch({
-              id,
-              runId,
-              splitNodeId: node.id,
-              agentId: t.agentId,
-              containerName: t.containerName || null,
-              status: 'running',
-              contextJson: JSON.stringify({ ...ctx, ...t }),
-            });
+            id,
+            runId,
+            splitNodeId: node.id,
+            agentId: t.agentId,
+            containerName: t.containerName || null,
+            status: 'running',
+            contextJson: JSON.stringify({ ...ctx, ...t }),
+          });
           return { id, ...t };
         });
 
         await Promise.all(branches.map(async (b) => {
-          const bctx: RunContext = { ...ctx, agentId: b.agentId, containerName: b.containerName, image: b.image || ctx.image };
-          // execute linear path until join
+          const bctx: RunContext = {
+            ...ctx,
+            agentId: b.agentId,
+            containerName: b.containerName,
+            image: b.image || ctx.image,
+          };
           let path = branchNodes.filter((n) => n.type !== 'join');
           const localVisited = new Set<string>();
           while (path.length) {
@@ -909,13 +1158,17 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
             localVisited.add(n.id);
             const r = await executeNode(runId, n, bctx, b.id, dryRun);
             if (r === 'failed') {
+              setLastOutcome(bctx, 'error', false);
               runsRepo.updateBranch(b.id, { status: 'failed', contextJson: JSON.stringify(bctx) });
               return;
             }
-            const h = bctx.__nextHandle ? String(bctx.__nextHandle) : undefined;
+            const h = bctx.__nextHandle !== undefined
+              ? String(bctx.__nextHandle)
+              : 'out';
             delete bctx.__nextHandle;
             path.push(...nextNodes(graph, n.id, h).filter((x) => x.type !== 'join'));
           }
+          setLastOutcome(bctx, 'ok', true);
           runsRepo.updateBranch(b.id, { status: 'success', contextJson: JSON.stringify(bctx) });
         }));
 
@@ -930,15 +1183,27 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
         if (join) {
           const mode = String(join.data.mode || 'wait_all');
           if (mode === 'await_user') {
-            runsRepo.update(runId, { status: 'awaiting_user', currentNodeId: join.id, contextJson: JSON.stringify(ctx) });
+            runsRepo.update(runId, {
+              status: 'awaiting_user',
+              currentNodeId: join.id,
+              contextJson: JSON.stringify(ctx),
+            });
             return;
           }
+          const anyFailed = allBranches.some((b) => b.status === 'failed');
           if (mode === 'continue_successes') {
             const ok = allBranches.filter((b) => b.status === 'success').map((b) => b.id);
             ctx.selectedBranchIds = ok;
+            setLastOutcome(ctx, ok.length > 0 ? 'ok' : 'failed', ok.length > 0);
+          } else {
+            // wait_all
+            setLastOutcome(ctx, anyFailed ? 'failed' : 'ok', !anyFailed);
+            if (anyFailed) setRunOutcome(ctx, 'failed');
           }
           await upsertStep(runId, join.id, null, 'success', { finishedAt: new Date() });
-          queue.push(...nextNodes(graph, join.id));
+          queue.push(...nextNodes(graph, join.id, 'out'));
+        } else {
+          setLastOutcome(ctx, 'ok', true);
         }
         continue;
       }
@@ -952,23 +1217,38 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
 
       if (result === 'waiting') return;
       if (result === 'failed') {
+        setLastOutcome(ctx, 'error', false);
         if (!SIDE_EFFECT_NODE_TYPES.has(node.type)) {
           setRunOutcome(ctx, 'failed');
         }
-        const errorNext = nextNodes(graph, node.id, 'error');
-        if (errorNext.length) {
-          queue.push(...errorNext);
+        const outNext = nextNodes(graph, node.id, 'out');
+        if (outNext.length) {
+          queue.push(...outNext);
           continue;
         }
-        // Side-effect failures never pause / fail the run
         if (SIDE_EFFECT_NODE_TYPES.has(node.type)) {
           continue;
         }
-        runsRepo.update(runId, { status: 'awaiting_user', currentNodeId: node.id, contextJson: JSON.stringify(ctx) });
+        runsRepo.update(runId, {
+          status: 'awaiting_user',
+          currentNodeId: node.id,
+          contextJson: JSON.stringify(ctx),
+        });
         return;
       }
 
-      const handle = ctx.__nextHandle !== undefined ? String(ctx.__nextHandle) : 'ok';
+      if (
+        ctx.lastOutcome == null
+        && node.type !== 'if'
+        && node.type !== 'case'
+        && node.type !== 'condition'
+      ) {
+        setLastOutcome(ctx, 'ok', true);
+      }
+
+      const handle = ctx.__nextHandle !== undefined
+        ? String(ctx.__nextHandle)
+        : 'out';
       delete ctx.__nextHandle;
       queue.push(...nextNodes(graph, node.id, handle));
     }

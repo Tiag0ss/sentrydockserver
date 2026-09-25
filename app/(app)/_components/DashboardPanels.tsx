@@ -254,7 +254,7 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
               <h2>{t('dashboard.upcoming')}</h2>
               <p>{t('dashboard.upcomingHint')}</p>
             </div>
-            <Link href="/policies" className="sd-entity-link">{t('dashboard.viewPolicies')}</Link>
+            <Link href="/flows" className="sd-entity-link">{t('dashboard.viewFlows')}</Link>
           </div>
           {upcoming.length === 0 ? (
             <Panel className="sd-entity-card">
