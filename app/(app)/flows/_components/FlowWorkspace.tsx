@@ -22,7 +22,8 @@ import { api } from '@/lib/api';
 import { FlowCard } from './FlowCard';
 import { NodeInspector } from './NodeInspector';
 import { FlowContextMenu, type ContextMenuState, type ContextTarget } from './FlowContextMenu';
-import { NODE_TYPES_LIST, getNodeOutputs, normalizeHandle, btnStyle, btnSecondaryStyle, inputStyle } from './flowConstants';
+import { NODE_TYPES_LIST, getNodeOutputs, normalizeHandle, branchesFromTargets, getSplitBranches, btnStyle, btnSecondaryStyle, inputStyle } from './flowConstants';
+import type { SplitBranch } from './flowConstants';
 import type { FlowSummary } from './FlowsList';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { useIsMobile } from '@/hooks/useIsMobile';
@@ -40,7 +41,7 @@ function normalizeBlackoutTime(raw: string): string {
 }
 
 const defaultEdgeOptions = {
-  type: 'smoothstep' as const,
+  type: 'default' as const,
   animated: false,
   style: { stroke: '#5a7aa8' },
 };
@@ -49,6 +50,108 @@ const nodeTypes = { flowCard: FlowCard };
 
 function portLabelKey(id: string) {
   return `ports.${id}`;
+}
+
+/** Encontra o check_image_update a montante do split (BFS inverso). */
+function findUpstreamCheckTargets(
+  splitId: string,
+  nodes: Node[],
+  edges: Edge[],
+): unknown[] | null {
+  const incoming = new Map<string, string[]>();
+  for (const e of edges) {
+    const list = incoming.get(e.target) || [];
+    list.push(e.source);
+    incoming.set(e.target, list);
+  }
+  const q = [splitId];
+  const seen = new Set<string>();
+  while (q.length) {
+    const id = q.shift()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const n = nodes.find((x) => x.id === id);
+    const type = String(n?.data?.nodeType || n?.type || '');
+    if (type === 'check_image_update' && n) {
+      return Array.isArray(n.data.targets) ? (n.data.targets as unknown[]) : [];
+    }
+    for (const src of incoming.get(id) || []) q.push(src);
+  }
+  return null;
+}
+
+function branchesEqual(a: SplitBranch[], b: SplitBranch[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((x, i) => x.id === b[i]?.id && x.label === b[i]?.label);
+}
+
+/** Redistribui arestas `out` do split para handles por contentor quando faz sentido. */
+function redistributeSplitEdges(
+  splitId: string,
+  branches: SplitBranch[],
+  edges: Edge[],
+): Edge[] {
+  if (!branches.length) return edges;
+  const outs = edges.filter((e) => e.source === splitId);
+  if (!outs.length) return edges;
+
+  const isGeneric = (e: Edge) => {
+    const h = String(e.sourceHandle || 'out');
+    return h === 'out' || h === 'ok' || h === 'success';
+  };
+  const generic = outs.filter(isGeneric);
+  const specific = outs.filter((e) => !isGeneric(e));
+  const rest = edges.filter((e) => e.source !== splitId);
+
+  // Já há handles por contentor: remover leftovers `out` (senão o motor podia seguir os 3 caminhos)
+  if (specific.length > 0) {
+    const specificIds = new Set(specific.map((e) => String(e.sourceHandle)));
+    const branchIds = new Set(branches.map((b) => b.id));
+    // Manter só específicas que ainda correspondem a um branch
+    const kept = specific.filter((e) => branchIds.has(String(e.sourceHandle)));
+    // Se faltam branches sem aresta e ainda há genéricas, atribuir
+    const missing = branches.filter((b) => !specificIds.has(b.id));
+    if (missing.length && generic.length === 1) {
+      const g = generic[0];
+      return [
+        ...rest,
+        ...kept,
+        ...missing.map((b) => ({
+          ...g,
+          id: `e-${splitId}-${g.target}-${b.id}`,
+          sourceHandle: b.id,
+          label: b.label,
+        })),
+      ];
+    }
+    return [...rest, ...kept];
+  }
+
+  // Só genéricas → redistribuir
+  if (generic.length === 1) {
+    const e = generic[0];
+    return [
+      ...rest,
+      ...branches.map((b) => ({
+        ...e,
+        id: `e-${splitId}-${e.target}-${b.id}`,
+        sourceHandle: b.id,
+        label: b.label,
+      })),
+    ];
+  }
+  if (generic.length === branches.length) {
+    return [
+      ...rest,
+      ...generic.map((e, i) => ({
+        ...e,
+        id: e.id || `e-${splitId}-${e.target}-${branches[i].id}`,
+        sourceHandle: branches[i].id,
+        label: branches[i].label,
+      })),
+    ];
+  }
+  return edges;
 }
 
 function toFlowNodes(graphNodes: FlowSummary['graph']['nodes'], nodeLabel: (type: string) => string): Node[] {
@@ -71,7 +174,7 @@ function toFlowNodes(graphNodes: FlowSummary['graph']['nodes'], nodeLabel: (type
 function toFlowEdges(
   graphEdges: FlowSummary['graph']['edges'],
   graphNodes: FlowSummary['graph']['nodes'],
-  edgeLabel: (portId: string) => string,
+  edgeLabel: (portId: string, sourceData?: Record<string, unknown> | null) => string,
 ): Edge[] {
   const nodeById = new Map(
     (graphNodes || []).map((raw) => {
@@ -86,12 +189,16 @@ function toFlowEdges(
     const type = String(src?.type || src?.data?.nodeType || '');
     const outputs = getNodeOutputs(type, src?.data || null);
     const sourceHandle = normalizeHandle(type, e.sourceHandle, src?.data || null);
+    const port = outputs.find((o) => o.id === sourceHandle);
     return {
       ...e,
       sourceHandle,
       targetHandle: e.targetHandle || 'in',
       deletable: true,
-      label: e.label ?? (outputs.length > 1 ? edgeLabel(sourceHandle) : undefined),
+      label: e.label
+        ?? (outputs.length > 1
+          ? (port?.label || edgeLabel(sourceHandle, src?.data || null))
+          : undefined),
       ...defaultEdgeOptions,
     };
   });
@@ -110,7 +217,11 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
     const translated = t(key);
     return translated === key ? type : translated;
   }, [t]);
-  const edgePortLabel = useCallback((portId: string) => {
+  const edgePortLabel = useCallback((portId: string, sourceData?: Record<string, unknown> | null) => {
+    if (sourceData) {
+      const br = getSplitBranches(sourceData).find((b) => b.id === portId);
+      if (br) return br.label;
+    }
     const key = portLabelKey(portId);
     const translated = t(key);
     return translated === key ? portId : translated;
@@ -163,6 +274,64 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
     setEdges(toFlowEdges(initial.graph.edges, initial.graph.nodes, edgePortLabel));
   }, [initial, setNodes, setEdges, nodeLabel, edgePortLabel]);
 
+  // Sync: split (contexto) → 1 saída por contentor do check a montante; limpar leftovers `out`
+  useEffect(() => {
+    let nodesChanged = false;
+    let edgesChanged = false;
+    let nextNodes = nodes;
+    let nextEdges = edges;
+
+    for (const n of nodes) {
+      const type = String(n.data.nodeType || '');
+      if (type !== 'split') continue;
+      const src = String(n.data.targetsSource || 'context');
+      if (src !== 'context') continue;
+      const checkTargets = findUpstreamCheckTargets(n.id, nodes, edges);
+      if (checkTargets == null) continue;
+      const branches = branchesFromTargets(checkTargets);
+      const current = getSplitBranches(n.data as Record<string, unknown>);
+      if (!branchesEqual(current, branches)) {
+        nodesChanged = true;
+        nextNodes = nextNodes.map((x) => (
+          x.id === n.id
+            ? { ...x, data: { ...x.data, branches } }
+            : x
+        ));
+      }
+      const effectiveBranches = branches.length ? branches : current;
+      if (!effectiveBranches.length) continue;
+      const cleaned = redistributeSplitEdges(n.id, effectiveBranches, nextEdges);
+      if (cleaned.length !== nextEdges.length
+        || cleaned.some((e, i) => e.id !== nextEdges[i]?.id || e.sourceHandle !== nextEdges[i]?.sourceHandle)) {
+        edgesChanged = true;
+        nextEdges = cleaned;
+      }
+    }
+
+    if (nodesChanged) setNodes(nextNodes);
+    if (nodesChanged || edgesChanged) {
+      const byId = new Map(nextNodes.map((n) => [n.id, n]));
+      setEdges(nextEdges.map((e) => {
+        const srcNode = byId.get(e.source);
+        const nodeType = String(srcNode?.data?.nodeType || '');
+        const outputs = getNodeOutputs(nodeType, (srcNode?.data || null) as Record<string, unknown> | null);
+        const sourceHandle = normalizeHandle(
+          nodeType,
+          e.sourceHandle,
+          (srcNode?.data || null) as Record<string, unknown> | null,
+        );
+        const port = outputs.find((o) => o.id === sourceHandle);
+        return {
+          ...e,
+          sourceHandle,
+          label: outputs.length > 1
+            ? (port?.label || edgePortLabel(sourceHandle, srcNode?.data as Record<string, unknown>))
+            : e.label,
+        };
+      }));
+    }
+  }, [nodes, edges, setNodes, setEdges, edgePortLabel]);
+
   const isValidConnection = useCallback((c: Connection | Edge) => {
     if (!c.source || !c.target) return false;
     return c.source !== c.target;
@@ -190,7 +359,10 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
         c.sourceHandle || outputs[0]?.id || 'out',
         data,
       );
-      const portLabel = outputs.length > 1 ? edgePortLabel(handleId) : undefined;
+      const port = outputs.find((o) => o.id === handleId);
+      const portLabel = outputs.length > 1
+        ? (port?.label || edgePortLabel(handleId, data))
+        : undefined;
       setEdges((eds) => addEdge({
         ...c,
         sourceHandle: handleId,
@@ -427,7 +599,16 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
   const inspector = (
     <div style={{ border: '1px solid var(--sd-border)', borderRadius: 10, padding: 12, background: 'var(--sd-panel)', height: '100%', overflow: 'auto' }}>
       <div style={{ fontWeight: 600, marginBottom: 8 }}>{t('flows.properties')}</div>
-      <NodeInspector selectedNode={selectedNode} nodes={nodes} edges={edges} onPatch={patchNode} />
+      <NodeInspector
+        selectedNode={
+          selectedNode
+            ? (nodes.find((n) => n.id === selectedNode.id) || selectedNode)
+            : null
+        }
+        nodes={nodes}
+        edges={edges}
+        onPatch={patchNode}
+      />
       {selectedNode && (
         <button
           type="button"

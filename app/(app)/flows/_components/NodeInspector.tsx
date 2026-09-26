@@ -10,6 +10,7 @@ import {
   getCaseMatchValues,
   getIfFieldsForPrev,
   getNodeOutputs,
+  getSplitBranches,
   inputStyle,
 } from './flowConstants';
 import { SearchSelect, type SearchOption } from './SearchSelect';
@@ -804,17 +805,43 @@ export function NodeInspector({ selectedNode, nodes = [], edges = [], onPatch }:
       })()}
 
       {type === 'split' && (
-        <label>
-          {t('inspector.targetsSource')}
-          <select
-            style={inputStyle}
-            value={String(selectedNode.data.targetsSource || 'context')}
-            onChange={(e) => patch('targetsSource', e.target.value)}
-          >
-            <option value="context">{t('inspector.targetsFromContext')}</option>
-            <option value="manual">{t('inspector.targetsManual')}</option>
-          </select>
-        </label>
+        <>
+          <label>
+            {t('inspector.targetsSource')}
+            <select
+              style={inputStyle}
+              value={String(selectedNode.data.targetsSource || 'context')}
+              onChange={(e) => patch('targetsSource', e.target.value)}
+            >
+              <option value="context">{t('inspector.targetsFromContext')}</option>
+              <option value="manual">{t('inspector.targetsManual')}</option>
+            </select>
+          </label>
+          {(() => {
+            const branches = getSplitBranches(selectedNode.data as Record<string, unknown>);
+            if (!branches.length) {
+              return (
+                <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--muted)' }}>
+                  {t('inspector.splitBranchesHint')}
+                </p>
+              );
+            }
+            return (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>
+                  {t('inspector.splitBranches')} ({branches.length})
+                </div>
+                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12 }}>
+                  {branches.map((b) => (
+                    <li key={b.id} style={{ marginBottom: 2 }}>
+                      <code style={{ fontSize: 11 }}>{b.label}</code>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })()}
+        </>
       )}
 
       {type === 'notify' && (

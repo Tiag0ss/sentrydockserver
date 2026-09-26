@@ -32,7 +32,6 @@ const LEGACY_SINGLE_OUT_ACTIONS = new Set([
   'notify',
   'webhook',
   'wait_approval',
-  'split',
   'join',
   'wait_healthy',
   'rollback',

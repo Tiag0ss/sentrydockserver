@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { tt } from '@/lib/i18n/translate';
+import { Modal, Button } from '@/components/ui';
 import { RunFlowChart, RunStatusLegend, type NodeStatusMap, type RunGraph } from '../_components/RunFlowChart';
 import { ActionIconButton } from '../_components/RunActionIcons';
 import { IconRefresh } from '@/components/IconActions';
@@ -38,6 +39,11 @@ type StepDetail = {
   dryRun?: boolean;
   elapsedMs?: number;
   remoteDigests?: string[];
+  childRunId?: string;
+  flowId?: string;
+  wait?: boolean;
+  status?: string;
+  skipped?: boolean;
 };
 
 type RunStep = {
@@ -86,7 +92,9 @@ function stepStatusColor(status: string): string {
   if (status === 'failed') return 'var(--danger)';
   if (status === 'rejected') return 'var(--warn)';
   if (status === 'running') return 'var(--accent)';
-  if (status === 'interrupted') return 'var(--warn)';
+  if (status === 'interrupted' || status === 'waiting_approval' || status === 'awaiting_user') {
+    return 'var(--warn)';
+  }
   return 'var(--muted)';
 }
 
@@ -346,6 +354,19 @@ function RunContextPanel({
   );
 }
 
+function findChildRunIdForNode(run: RunDetail, nodeId: string): string | null {
+  const nodeSteps = (run.steps || []).filter((s) => s.nodeId === nodeId);
+  for (let i = nodeSteps.length - 1; i >= 0; i -= 1) {
+    const childId = nodeSteps[i].detail?.childRunId;
+    if (childId && typeof childId === 'string') return childId;
+  }
+  const stepIds = new Set(nodeSteps.map((s) => s.id));
+  const child = (run.children || []).find(
+    (c) => c.parentStepId && stepIds.has(c.parentStepId),
+  );
+  return child?.id || null;
+}
+
 export default function RunDetailPage() {
   const { t, formatDate } = useI18n();
   const params = useParams();
@@ -355,9 +376,69 @@ export default function RunDetailPage() {
   const [rerunning, setRerunning] = useState(false);
   const [rerunError, setRerunError] = useState('');
   const [overrideTargetTag, setOverrideTargetTag] = useState('');
+  const [childBusyId, setChildBusyId] = useState<string | null>(null);
+  const [childActionError, setChildActionError] = useState('');
+  const [childModalId, setChildModalId] = useState<string | null>(null);
+  const [childModalRun, setChildModalRun] = useState<RunDetail | null>(null);
+  const [childModalLoading, setChildModalLoading] = useState(false);
+  const [childModalError, setChildModalError] = useState('');
 
   async function load() {
     setRun(await api<RunDetail>(`/runs/${id}`));
+  }
+
+  const loadChildModal = useCallback(async (childId: string) => {
+    setChildModalLoading(true);
+    setChildModalError('');
+    try {
+      const detail = await api<RunDetail>(`/runs/${childId}`);
+      setChildModalRun(detail);
+    } catch (e) {
+      setChildModalError(e instanceof Error ? e.message : t('runs.actionError'));
+      setChildModalRun(null);
+    } finally {
+      setChildModalLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    if (!childModalId || childModalId === '__missing__') {
+      if (childModalId !== '__missing__') setChildModalRun(null);
+      return;
+    }
+    void loadChildModal(childModalId);
+    const timer = setInterval(() => { void loadChildModal(childModalId); }, 3000);
+    return () => clearInterval(timer);
+  }, [childModalId, loadChildModal]);
+
+  async function decideChild(childId: string, ok: boolean) {
+    setChildBusyId(childId);
+    setChildActionError('');
+    try {
+      await api(`/runs/${childId}/continue`, {
+        method: 'POST',
+        body: JSON.stringify({ continue: ok }),
+      });
+      await load();
+      if (childModalId === childId) await loadChildModal(childId);
+    } catch (e) {
+      setChildActionError(e instanceof Error ? e.message : t('runs.actionError'));
+    } finally {
+      setChildBusyId(null);
+    }
+  }
+
+  function openChildFromNode(nodeId: string) {
+    if (!run) return;
+    const childId = findChildRunIdForNode(run, nodeId);
+    if (!childId) {
+      setChildModalRun(null);
+      setChildModalError(t('runs.childRunNotStarted'));
+      setChildModalId('__missing__');
+      return;
+    }
+    setChildModalError('');
+    setChildModalId(childId);
   }
 
   async function rerun() {
@@ -457,17 +538,77 @@ export default function RunDetailPage() {
           background: 'var(--panel)',
         }}>
           <h2 style={{ margin: '0 0 8px', fontSize: 16 }}>{t('runs.childRuns')}</h2>
-          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
-            {run.children.map((c) => (
-              <li key={c.id} style={{ marginBottom: 4 }}>
-                <Link href={`/runs/${c.id}`} style={{ color: 'var(--accent)' }}>
-                  {c.flowName}
-                </Link>
-                {' · '}
-                <span style={{ color: stepStatusColor(c.status) }}>{statusLabel(t, c.status)}</span>
-                <span style={{ color: 'var(--muted)' }}> · {c.id.slice(0, 8)}…</span>
-              </li>
-            ))}
+          {childActionError ? (
+            <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--danger)' }}>{childActionError}</p>
+          ) : null}
+          <ul style={{ margin: 0, padding: 0, listStyle: 'none', fontSize: 13 }}>
+            {run.children.map((c) => {
+              const needsDecision = c.status === 'waiting_approval' || c.status === 'awaiting_user';
+              const isApproval = c.status === 'waiting_approval';
+              const busy = childBusyId === c.id;
+              const otherBusy = childBusyId !== null && !busy;
+              return (
+                <li
+                  key={c.id}
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                    gap: 8,
+                    marginBottom: 8,
+                    paddingBottom: 8,
+                    borderBottom: '1px solid var(--border)',
+                  }}
+                >
+                  <div style={{ flex: '1 1 200px', minWidth: 0 }}>
+                    <Link href={`/runs/${c.id}`} style={{ color: 'var(--accent)' }}>
+                      {c.flowName}
+                    </Link>
+                    {' · '}
+                    <span style={{ color: stepStatusColor(c.status) }}>{statusLabel(t, c.status)}</span>
+                    <span style={{ color: 'var(--muted)' }}> · {c.id.slice(0, 8)}…</span>
+                  </div>
+                  {needsDecision ? (
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                      <button
+                        type="button"
+                        disabled={busy || otherBusy}
+                        onClick={() => { void decideChild(c.id, true); }}
+                        style={{
+                          background: 'var(--accent)',
+                          border: 'none',
+                          padding: '6px 10px',
+                          borderRadius: 8,
+                          cursor: busy || otherBusy ? 'not-allowed' : 'pointer',
+                          fontWeight: 600,
+                          fontSize: 12,
+                          opacity: busy || otherBusy ? 0.6 : 1,
+                        }}
+                      >
+                        {isApproval ? t('runs.approve') : t('runs.continue')}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy || otherBusy}
+                        onClick={() => { void decideChild(c.id, false); }}
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid var(--danger)',
+                          color: 'var(--danger)',
+                          padding: '6px 10px',
+                          borderRadius: 8,
+                          cursor: busy || otherBusy ? 'not-allowed' : 'pointer',
+                          fontSize: 12,
+                          opacity: busy || otherBusy ? 0.6 : 1,
+                        }}
+                      >
+                        {isApproval ? t('runs.reject') : t('runs.abort')}
+                      </button>
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         </section>
       )}
@@ -539,9 +680,106 @@ export default function RunDetailPage() {
             graph={run.flow.graph}
             nodeStatuses={run.nodeStatuses || {}}
             currentNodeId={run.currentNodeId}
+            onNodeClick={({ nodeId, nodeType }) => {
+              if (nodeType === 'run_flow') openChildFromNode(nodeId);
+            }}
           />
         </section>
       )}
+
+      <Modal
+        open={Boolean(childModalId)}
+        wide
+        title={
+          childModalRun?.flow?.name
+            ? t('runs.childRunModalTitle', { name: childModalRun.flow.name })
+            : t('runs.childRunModalTitleFallback')
+        }
+        onClose={() => {
+          setChildModalId(null);
+          setChildModalRun(null);
+          setChildModalError('');
+        }}
+        footer={
+          childModalRun ? (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              {(childModalRun.status === 'waiting_approval' || childModalRun.status === 'awaiting_user') ? (
+                <>
+                  <Button
+                    className="sd-btn-sm"
+                    disabled={childBusyId === childModalRun.id}
+                    onClick={() => { void decideChild(childModalRun.id, true); }}
+                  >
+                    {childModalRun.status === 'waiting_approval' ? t('runs.approve') : t('runs.continue')}
+                  </Button>
+                  <Button
+                    variant="danger"
+                    className="sd-btn-sm"
+                    disabled={childBusyId === childModalRun.id}
+                    onClick={() => { void decideChild(childModalRun.id, false); }}
+                  >
+                    {childModalRun.status === 'waiting_approval' ? t('runs.reject') : t('runs.abort')}
+                  </Button>
+                </>
+              ) : null}
+              <Link href={`/runs/${childModalRun.id}`} className="sd-entity-link" style={{ alignSelf: 'center' }}>
+                {t('runs.openDetail')}
+              </Link>
+            </div>
+          ) : undefined
+        }
+      >
+        {childModalLoading && !childModalRun ? (
+          <p style={{ margin: 0, color: 'var(--muted)' }}>{t('runs.loading')}</p>
+        ) : null}
+        {childModalError ? (
+          <p style={{ margin: '0 0 12px', color: 'var(--danger)', fontSize: 13 }}>{childModalError}</p>
+        ) : null}
+        {childModalRun ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', fontSize: 14 }}>
+              <span>
+                {t('runs.status')}:{' '}
+                <strong style={{ color: stepStatusColor(childModalRun.status) }}>
+                  {statusLabel(t, childModalRun.status)}
+                </strong>
+              </span>
+              {childModalRun.currentNodeId ? (
+                <span style={{ color: 'var(--muted)' }}>
+                  {t('runs.step')}:{' '}
+                  {(() => {
+                    const n = childModalRun.flow?.graph?.nodes?.find((x) => x.id === childModalRun.currentNodeId);
+                    const typ = n ? String(n.type || n.data?.nodeType || '') : '';
+                    if (!typ) return childModalRun.currentNodeId;
+                    const key = `nodes.${typ}`;
+                    const tr = t(key);
+                    return tr !== key ? tr : typ;
+                  })()}
+                </span>
+              ) : null}
+              <span style={{ color: 'var(--muted)', fontSize: 12 }} title={childModalRun.id}>
+                {childModalRun.id.slice(0, 8)}…
+              </span>
+            </div>
+            {childActionError ? (
+              <p style={{ margin: 0, fontSize: 12, color: 'var(--danger)' }}>{childActionError}</p>
+            ) : null}
+            {childModalRun.flow?.graph ? (
+              <>
+                <RunStatusLegend />
+                <RunFlowChart
+                  graph={childModalRun.flow.graph}
+                  nodeStatuses={childModalRun.nodeStatuses || {}}
+                  currentNodeId={childModalRun.currentNodeId}
+                  height={360}
+                />
+              </>
+            ) : (
+              <p style={{ margin: 0, color: 'var(--muted)' }}>{t('runs.noGraph')}</p>
+            )}
+          </div>
+        ) : null}
+      </Modal>
 
       <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <h2 style={{ margin: 0, fontSize: 16 }}>{t('runs.steps')}</h2>

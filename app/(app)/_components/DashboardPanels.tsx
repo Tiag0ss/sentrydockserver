@@ -55,7 +55,12 @@ export type DashboardData = {
     status: string;
     currentNodeId?: string | null;
     currentNodeType?: string | null;
-    context?: { containerName?: string; image?: string } | null;
+    context?: {
+      containerName?: string;
+      image?: string;
+      targets?: Array<{ containerName?: string }>;
+      targetsCount?: number;
+    } | null;
   }>;
   summary: {
     agentsOnline: number;
@@ -141,6 +146,66 @@ function ApproveButton({ id, onDone }: { id: string; onDone: () => void }) {
   );
 }
 
+async function continueRun(runId: string, ok: boolean) {
+  await api(`/runs/${runId}/continue`, {
+    method: 'POST',
+    body: JSON.stringify({ continue: ok }),
+  });
+}
+
+function RunApprovalActions({
+  runId,
+  status,
+  busy,
+  onBusy,
+  onDone,
+  onError,
+}: {
+  runId: string;
+  status: string;
+  busy: boolean;
+  onBusy: (id: string | null) => void;
+  onDone: () => void;
+  onError: (msg: string) => void;
+}) {
+  const { t } = useI18n();
+  if (status !== 'waiting_approval' && status !== 'awaiting_user') return null;
+  const isApproval = status === 'waiting_approval';
+
+  async function act(ok: boolean) {
+    onBusy(runId);
+    onError('');
+    try {
+      await continueRun(runId, ok);
+      onDone();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : t('runs.actionError'));
+    } finally {
+      onBusy(null);
+    }
+  }
+
+  return (
+    <>
+      <Button
+        className="sd-btn-sm"
+        disabled={busy}
+        onClick={() => { void act(true); }}
+      >
+        {isApproval ? t('runs.approve') : t('runs.continue')}
+      </Button>
+      <Button
+        variant="danger"
+        className="sd-btn-sm"
+        disabled={busy}
+        onClick={() => { void act(false); }}
+      >
+        {isApproval ? t('runs.reject') : t('runs.abort')}
+      </Button>
+    </>
+  );
+}
+
 export function DashboardPanels({ data, onReload }: { data: DashboardData; onReload: () => void }) {
   const { t, formatDate } = useI18n();
   const router = useRouter();
@@ -215,6 +280,17 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
               ))}
               {data.attention.map((a) => {
                 const step = humanStepLabel(t, a.currentNodeType, a.currentNodeId);
+                const targetsCount = Array.isArray(a.context?.targets)
+                  ? a.context!.targets!.length
+                  : (typeof a.context?.targetsCount === 'number' ? a.context.targetsCount : null);
+                const targetsPreview = Array.isArray(a.context?.targets)
+                  ? a.context!.targets!
+                    .map((x) => x.containerName)
+                    .filter(Boolean)
+                    .slice(0, 3)
+                    .join(', ')
+                  : null;
+                const busy = busyId === a.id;
                 return (
                   <Panel key={a.id} className="sd-entity-card">
                     <div className="sd-entity-item">
@@ -231,11 +307,21 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
                           {[
                             t('dashboard.needsAction'),
                             step ? `${t('dashboard.step')}: ${step}` : null,
-                            a.context?.containerName,
+                            targetsCount != null ? `${targetsCount} ${t('dashboard.containersCount')}` : null,
+                            targetsPreview || a.context?.containerName,
+                            a.context?.image,
                           ].filter(Boolean).join(' · ')}
                         </div>
                       </div>
                       <div className="sd-entity-actions">
+                        <RunApprovalActions
+                          runId={a.id}
+                          status={a.status}
+                          busy={busy || (busyId !== null && busyId !== a.id)}
+                          onBusy={setBusyId}
+                          onDone={onReload}
+                          onError={setError}
+                        />
                         <IconButton label={t('runs.openDetail')} onClick={() => router.push(`/runs/${a.id}`)}>
                           <IconOpen />
                         </IconButton>

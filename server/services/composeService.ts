@@ -417,6 +417,12 @@ function buildBasicComposeUpdateGraph(opts: {
         nodeType: 'split',
         retries: 0,
         targetsSource: 'context',
+        branches: opts.targets.map((t) => ({
+          id: t.id,
+          label: t.containerName,
+          agentId: t.agentId,
+          containerName: t.containerName,
+        })),
       },
     },
     {
@@ -507,7 +513,15 @@ function buildBasicComposeUpdateGraph(opts: {
     { id: `e-${ts}-nou`, source: checkId, target: notifyNoId, sourceHandle: 'no_update' },
     { id: `e-${ts}-err`, source: checkId, target: notifyErrId, sourceHandle: 'error' },
     { id: `e-${ts}-appr`, source: approvalId, target: splitId, sourceHandle: 'out' },
-    { id: `e-${ts}-spl`, source: splitId, target: pullId, sourceHandle: 'out' },
+    // Uma aresta por contentor (mesmo caminho pull→compose); legado `out` se não houver targets
+    ...(opts.targets.length
+      ? opts.targets.map((t, i) => ({
+        id: `e-${ts}-spl-${i}`,
+        source: splitId,
+        target: pullId,
+        sourceHandle: t.id,
+      }))
+      : [{ id: `e-${ts}-spl`, source: splitId, target: pullId, sourceHandle: 'out' }]),
     { id: `e-${ts}-pull`, source: pullId, target: composeId, sourceHandle: 'out' },
     { id: `e-${ts}-cmp`, source: composeId, target: healthyId, sourceHandle: 'out' },
     { id: `e-${ts}-hlt`, source: healthyId, target: joinId, sourceHandle: 'out' },

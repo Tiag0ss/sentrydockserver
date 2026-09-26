@@ -16,6 +16,7 @@ import {
 import { getRegistryAuth, resolveCatalogImageRef } from './imagesService';
 import { deployComposeProject } from './composeService';
 import { imagesRepo } from '../repositories/imagesRepo';
+import { composeProjectsRepo } from '../repositories/composeRepo';
 import logger from '../utils/logger';
 
 export type FlowNode = {
@@ -170,10 +171,29 @@ export function acquireLock(lockKey: string): boolean {
 /** Locks em memória por contentor (além do lock_key em flow_runs). */
 const containerLocks = new Map<string, string>(); // lockKey → runId
 
+function isRunDescendantOf(runId: string, ancestorId: string): boolean {
+  let current: string | null = runId;
+  const seen = new Set<string>();
+  while (current) {
+    if (current === ancestorId) return true;
+    if (seen.has(current)) return false;
+    seen.add(current);
+    const row = runsRepo.findById(current);
+    current = row?.parentRunId || null;
+  }
+  return false;
+}
+
 function tryAcquireContainerLock(lockKey: string, runId: string): boolean {
-  if (containerLocks.has(lockKey)) return false;
-  containerLocks.set(lockKey, runId);
-  return true;
+  const holder = containerLocks.get(lockKey);
+  if (!holder) {
+    containerLocks.set(lockKey, runId);
+    return true;
+  }
+  if (holder === runId) return true;
+  // Subflow (run_flow) pode partilhar o lock do ancestral que já o detém
+  if (isRunDescendantOf(runId, holder)) return true;
+  return false;
 }
 
 function releaseContainerLock(lockKey: string, runId: string) {
@@ -255,7 +275,7 @@ function normalizeNodeType(type: string): string {
 
 const ACTION_TYPES = new Set([
   'pull_image', 'recreate_container', 'compose_up', 'compose_down',
-  'notify', 'webhook', 'wait_approval', 'split', 'join', 'wait_healthy', 'rollback',
+  'notify', 'webhook', 'wait_approval', 'join', 'wait_healthy', 'rollback',
 ]);
 
 function defaultOutHandle(type: string): string {
@@ -296,9 +316,72 @@ function normalizeHandleId(
     if (!handle || handle === 'out' || handle === 'ok') return 'success';
     return handle;
   }
+  if (t === 'split') {
+    // Uma saída por contentor — preservar o handle; aliases genéricos → out
+    if (!handle || handle === 'ok' || handle === 'success') return 'out';
+    return handle;
+  }
   if (ACTION_TYPES.has(t)) return 'out';
   if (!handle || handle === 'out' || handle === 'success' || handle === 'ok') return 'out';
   return handle;
+}
+
+function resolveSplitHandleForTarget(
+  graph: FlowGraph,
+  splitNode: FlowNode,
+  t: { id?: string; agentId: string; containerName?: string },
+): string {
+  const from = graph.edges.filter((e) => e.source === splitNode.id);
+  const handles = new Set(
+    from.map((e) => normalizeHandleId('split', e.sourceHandle, splitNode.data)),
+  );
+  const containerName = String(t.containerName || '').trim();
+  const targetId = String(t.id || (containerName ? `${t.agentId}:${containerName}` : '')).trim();
+  const candidates = [targetId, containerName].filter(Boolean);
+  for (const c of candidates) {
+    if (handles.has(c)) return c;
+  }
+  // Match por branches configurados no nó
+  const rawBranches = splitNode.data.branches;
+  if (Array.isArray(rawBranches)) {
+    for (const b of rawBranches) {
+      if (!b || typeof b !== 'object') continue;
+      const row = b as Record<string, unknown>;
+      const bid = String(row.id || '').trim();
+      const bAgent = String(row.agentId || '').trim();
+      const bName = String(row.containerName || row.label || '').trim();
+      const matches = (bid && bid === targetId)
+        || (bName && bName === containerName && (!bAgent || bAgent === t.agentId));
+      if (matches && bid && handles.has(bid)) return bid;
+    }
+  }
+  // Legado: só usar `out` se NÃO houver handles por contentor
+  const hasSpecific = [...handles].some((h) => h !== 'out' && h !== 'ok' && h !== 'success');
+  if (!hasSpecific && handles.has('out')) return 'out';
+  // Com handles por contentor, não fazer fallback para `out` (correria todos os caminhos)
+  return targetId || containerName || 'out';
+}
+
+function findJoinFromSplit(graph: FlowGraph, splitNodeId: string): FlowNode | undefined {
+  const starts = graph.edges
+    .filter((e) => e.source === splitNodeId)
+    .map((e) => graph.nodes.find((n) => n.id === e.target))
+    .filter(Boolean) as FlowNode[];
+  const q = [...starts];
+  const seen = new Set<string>();
+  while (q.length) {
+    const n = q.shift()!;
+    if (seen.has(n.id)) continue;
+    seen.add(n.id);
+    if (n.type === 'join') return n;
+    q.push(...nextNodes(graph, n.id, 'out'));
+    // Também seguir outros handles (run_flow success/failed, etc.)
+    for (const e of graph.edges.filter((x) => x.source === n.id)) {
+      const nxt = graph.nodes.find((x) => x.id === e.target);
+      if (nxt) q.push(nxt);
+    }
+  }
+  return undefined;
 }
 
 function setLastOutcome(ctx: RunContext, outcome: string, result?: boolean) {
@@ -562,6 +645,96 @@ function parseNodeTargets(data: Record<string, unknown>): FlowTarget[] {
     })
     .filter(Boolean) as FlowTarget[];
 }
+
+function recoverTargetsFromCheckStep(runId: string): FlowTarget[] {
+  const steps = runsRepo.steps(runId);
+  // Mais recente primeiro — preferir check_image_update
+  const checks = steps
+    .filter((s) => {
+      if (s.nodeId.startsWith('check_image_update')) return true;
+      if (!s.detailJson) return false;
+      try {
+        const d = JSON.parse(s.detailJson) as { targets?: unknown; updateAvailable?: boolean };
+        return Array.isArray(d.targets) && d.targets.length > 0 && d.updateAvailable === true;
+      } catch {
+        return false;
+      }
+    })
+    .slice()
+    .sort((a, b) => {
+      const ta = a.finishedAt ? new Date(a.finishedAt).getTime() : 0;
+      const tb = b.finishedAt ? new Date(b.finishedAt).getTime() : 0;
+      return tb - ta;
+    });
+  for (const step of checks) {
+    if (!step.detailJson) continue;
+    try {
+      const detail = JSON.parse(step.detailJson) as { targets?: unknown };
+      if (!Array.isArray(detail.targets) || !detail.targets.length) continue;
+      const parsed = detail.targets
+        .map((t) => {
+          if (!t || typeof t !== 'object') return null;
+          const row = t as Record<string, unknown>;
+          const agentId = String(row.agentId || '').trim();
+          const containerName = String(row.containerName || '').trim();
+          if (!agentId || !containerName) return null;
+          return {
+            id: String(row.id || `${agentId}:${containerName}`),
+            agentId,
+            containerName,
+            image: row.image != null ? String(row.image) : undefined,
+            oldDigest: row.oldDigest != null ? String(row.oldDigest) : undefined,
+            newDigest: row.newDigest != null ? String(row.newDigest) : undefined,
+          };
+        })
+        .filter(Boolean) as FlowTarget[];
+      if (parsed.length) return parsed;
+    } catch {
+      /* ignore */
+    }
+  }
+  return [];
+}
+
+/** Targets configurados nos nós check do flow (vazio = sem filtro explícito). */
+function getFlowCheckTargets(flowId: string): FlowTarget[] {
+  const flow = flowsRepo.findById(flowId);
+  if (!flow) return [];
+  const graph = parseGraph(flow.graphJson);
+  const out: FlowTarget[] = [];
+  for (const n of graph.nodes) {
+    if (normalizeNodeType(n.type) !== 'check_image_update') continue;
+    out.push(...parseNodeTargets(n.data));
+  }
+  return out;
+}
+
+function targetKey(agentId: string, containerName: string): string {
+  return `${agentId}:${containerName}`;
+}
+
+function flowTargetsInclude(
+  targets: FlowTarget[],
+  agentId: string,
+  containerName: string,
+): boolean {
+  const key = targetKey(agentId, containerName);
+  return targets.some(
+    (t) => targetKey(t.agentId, t.containerName) === key
+      || (t.agentId === agentId && t.containerName === containerName),
+  );
+}
+
+/** Contentor Docker Compose: `{project}-{service}-{n}` (não confundir container-test com container-test2). */
+function containerBelongsToComposeProject(containerName: string, projectName: string): boolean {
+  const name = containerName.trim();
+  const project = projectName.trim();
+  if (!name || !project) return false;
+  return name === project || name.startsWith(`${project}-`);
+}
+
+/** Dedup de run_flow sem targets no filho: uma execução por (parentRun, node). */
+const runFlowOnceKeys = new Set<string>();
 
 function containerLockKey(agentId: string, containerName: string): string {
   return `container:${agentId}:${containerName}`;
@@ -951,6 +1124,28 @@ async function executeNode(
           const composeProjectId = String(node.data.composeProjectId || '').trim();
           const projectPath = String(node.data.projectPath || '').trim();
           const image = ctx.image ? String(ctx.image) : undefined;
+          const branchContainer = ctx.containerName ? String(ctx.containerName) : '';
+
+          // Dentro de um split: só fazer compose se o contentor do ramo pertencer a este projecto
+          if (composeProjectId && branchContainer) {
+            const project = composeProjectsRepo.findById(composeProjectId);
+            if (project && !containerBelongsToComposeProject(branchContainer, project.name)) {
+              setLastOutcome(ctx, 'ok', true);
+              await upsertStep(runId, node.id, branchId, 'success', {
+                finishedAt: new Date(),
+                detailJson: detailJson({
+                  agentId,
+                  composeProjectId,
+                  action: node.type === 'compose_up' ? 'up' : 'down',
+                  skipped: true,
+                  reason: 'container_not_in_project',
+                  containerName: branchContainer,
+                  projectName: project.name,
+                }),
+              });
+              return 'success';
+            }
+          }
 
           if (composeProjectId && node.type === 'compose_up') {
             if (!agentId) throw new Error('agentId required for compose project deploy');
@@ -975,6 +1170,7 @@ async function executeNode(
                 action: 'up',
                 image,
                 skipped: Boolean(row?.skipped),
+                containerName: branchContainer || undefined,
               }),
             });
           } else {
@@ -1153,7 +1349,11 @@ async function executeNode(
               });
             }
           }
-          runsRepo.update(runId, { status: 'waiting_approval' });
+          runsRepo.update(runId, {
+            status: 'waiting_approval',
+            currentNodeId: node.id,
+            contextJson: JSON.stringify(ctx),
+          });
           await upsertStep(runId, node.id, branchId, 'running', {
             detailJson: detailJson({
               message: message || undefined,
@@ -1343,6 +1543,48 @@ async function executeNode(
             throw new Error('run_flow cannot call the same flow (cycle)');
           }
           const wait = node.data.wait !== false && node.data.wait !== 'false';
+          const branchAgentId = String(ctx.agentId || '').trim();
+          const branchContainer = String(ctx.containerName || '').trim();
+          const onceKey = `${runId}:${node.id}`;
+
+          // Dentro de um split: só executar o filho se o contentor do ramo estiver nos targets do check do filho
+          const childTargets = getFlowCheckTargets(childFlowId);
+          if (branchAgentId && branchContainer && childTargets.length > 0) {
+            if (!flowTargetsInclude(childTargets, branchAgentId, branchContainer)) {
+              setLastOutcome(ctx, 'ok', true);
+              ctx.__nextHandle = wait ? 'success' : 'out';
+              await upsertStep(runId, node.id, branchId, 'success', {
+                finishedAt: new Date(),
+                detailJson: detailJson({
+                  flowId: childFlowId,
+                  wait,
+                  skipped: true,
+                  reason: 'target_not_in_child_flow',
+                  containerName: branchContainer,
+                  agentId: branchAgentId,
+                }),
+              });
+              return 'success';
+            }
+          }
+
+          // Uma única execução deste nó por run pai (evita 2º ramo a disparar o mesmo subflow)
+          if (runFlowOnceKeys.has(onceKey)) {
+            setLastOutcome(ctx, 'ok', true);
+            ctx.__nextHandle = wait ? 'success' : 'out';
+            await upsertStep(runId, node.id, branchId, 'success', {
+              finishedAt: new Date(),
+              detailJson: detailJson({
+                flowId: childFlowId,
+                wait,
+                skipped: true,
+                reason: 'already_started_for_parent',
+              }),
+            });
+            return 'success';
+          }
+          runFlowOnceKeys.add(onceKey);
+
           const stepId = await upsertStep(runId, node.id, branchId, 'running', {
             startedAt: new Date(),
             detailJson: detailJson({ flowId: childFlowId, wait }),
@@ -1354,8 +1596,7 @@ async function executeNode(
             agentId: ctx.agentId,
             containerName: ctx.containerName,
             secretId: ctx.secretId,
-            targets: ctx.targets,
-            skippedTargets: ctx.skippedTargets,
+            // Não herdar targets do pai — o check do filho preenche o lote
             oldDigest: ctx.oldDigest,
             newDigest: ctx.newDigest,
             targetMode: ctx.targetMode,
@@ -1373,11 +1614,14 @@ async function executeNode(
               actor: 'system',
               parentRunId: runId,
               parentStepId: stepId,
+              // Um subflow activo por nó run_flow neste run pai
               lockKey: `flow:${childFlowId}:parent:${runId}:${node.id}`,
             });
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             setLastOutcome(ctx, 'error', false);
+            ctx.__branchFailed = true;
+            // Seguir handle error/failed (rollback) — não abortar o ramo sem encaminhar
             ctx.__nextHandle = wait ? 'error' : 'out';
             recordNodeFailure(ctx, node, msg);
             await upsertStep(runId, node.id, branchId, 'failed', {
@@ -1385,7 +1629,7 @@ async function executeNode(
               lastError: msg,
               detailJson: detailJson({ flowId: childFlowId, wait, error: msg }),
             });
-            return wait ? 'failed' : 'success';
+            return 'success';
           }
 
           ctx.childRunId = childRunId;
@@ -1421,13 +1665,14 @@ async function executeNode(
           if (!terminal.has(childStatus)) {
             childStatus = 'failed';
             setLastOutcome(ctx, 'error', false);
+            ctx.__branchFailed = true;
             ctx.__nextHandle = 'error';
             await upsertStep(runId, node.id, branchId, 'failed', {
               finishedAt: new Date(),
               lastError: 'child run timeout',
               detailJson: detailJson({ flowId: childFlowId, childRunId, wait: true, status: childStatus }),
             });
-            return 'failed';
+            return 'success';
           }
 
           if (childStatus === 'success') {
@@ -1441,6 +1686,7 @@ async function executeNode(
           }
           if (childStatus === 'rejected') {
             setLastOutcome(ctx, 'failed', false);
+            ctx.__branchFailed = true;
             ctx.__nextHandle = 'failed';
             setRunOutcome(ctx, 'rejected');
             await upsertStep(runId, node.id, branchId, 'failed', {
@@ -1451,6 +1697,7 @@ async function executeNode(
             return 'success'; // pai continua pelo handle failed
           }
           setLastOutcome(ctx, 'failed', false);
+          ctx.__branchFailed = true;
           ctx.__nextHandle = 'failed';
           await upsertStep(runId, node.id, branchId, 'failed', {
             finishedAt: new Date(),
@@ -1556,29 +1803,73 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
         const fromContext = String(node.data.targetsSource || '') === 'context'
           || !Array.isArray(node.data.targets)
           || (node.data.targets as unknown[]).length === 0;
-        const targets = (
+        let targets = (
           fromContext && Array.isArray(ctx.targets)
             ? ctx.targets
             : (node.data.targets || [])
-        ) as Array<{ agentId: string; containerName?: string; image?: string; oldDigest?: string; newDigest?: string }>;
-        const branchNodes = nextNodes(graph, node.id, 'out');
-        const findJoin = (): FlowNode | undefined => {
-          const q = [...branchNodes];
-          const seen = new Set<string>();
-          while (q.length) {
-            const n = q.shift()!;
-            if (seen.has(n.id)) continue;
-            seen.add(n.id);
-            if (n.type === 'join') return n;
-            q.push(...nextNodes(graph, n.id, 'out'));
+        ) as Array<{
+          id?: string;
+          agentId: string;
+          containerName?: string;
+          image?: string;
+          oldDigest?: string;
+          newDigest?: string;
+        }>;
+
+        // Recuperar targets do check se o contexto os perdeu (ex. após aprovação / subflow)
+        if ((!targets || targets.length === 0) && fromContext) {
+          const recovered = recoverTargetsFromCheckStep(runId);
+          if (recovered.length) {
+            targets = recovered;
+            ctx.targets = recovered;
+            logger.warn('split recovered targets from check step', {
+              runId,
+              count: recovered.length,
+            });
           }
-          return undefined;
-        };
-        const join = findJoin();
+        }
+
+        const join = findJoinFromSplit(graph, node.id);
 
         if (targets.length === 0) {
+          const expectedWork = Boolean(ctx.updateAvailable)
+            || String(ctx.approvalDecision || '') === 'approved'
+            || String(ctx.lastOutcome || '') === 'update';
+          if (expectedWork) {
+            const msg = 'Split has no targets after check/approval — cannot update containers';
+            setLastOutcome(ctx, 'failed', false);
+            setRunOutcome(ctx, 'failed');
+            recordNodeFailure(ctx, node, msg);
+            await upsertStep(runId, node.id, null, 'failed', {
+              finishedAt: new Date(),
+              lastError: msg,
+              detailJson: detailJson({
+                error: msg,
+                updateAvailable: ctx.updateAvailable,
+                approvalDecision: ctx.approvalDecision,
+              }),
+            });
+            if (join) {
+              await upsertStep(runId, join.id, null, 'failed', {
+                finishedAt: new Date(),
+                lastError: msg,
+              });
+            }
+            runsRepo.update(runId, {
+              status: 'failed',
+              finishedAt: new Date(),
+              currentNodeId: null,
+              contextJson: JSON.stringify(ctx),
+              summary: msg,
+            });
+            return;
+          }
           setLastOutcome(ctx, 'ok', true);
           ctx.branchResults = [];
+          await upsertStep(runId, node.id, null, 'success', {
+            finishedAt: new Date(),
+            detailJson: detailJson({ targetsCount: 0, skipped: true }),
+          });
           if (join) {
             await upsertStep(runId, join.id, null, 'success', { finishedAt: new Date() });
             queue.push(...nextNodes(graph, join.id, 'out'));
@@ -1586,10 +1877,19 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
           continue;
         }
 
+        await upsertStep(runId, node.id, null, 'success', {
+          finishedAt: new Date(),
+          detailJson: detailJson({
+            targetsCount: targets.length,
+            handles: targets.map((t) => resolveSplitHandleForTarget(graph, node, t)),
+          }),
+        });
+
         const branches = targets.map((t) => {
-          const id = uuid();
+          const branchId = uuid();
+          // Não espalhar `t` depois de `id` — o target também tem `id` e sobrescrevia o UUID do branch
           runsRepo.insertBranch({
-            id,
+            id: branchId,
             runId,
             splitNodeId: node.id,
             agentId: t.agentId,
@@ -1597,7 +1897,15 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
             status: 'running',
             contextJson: JSON.stringify({ ...ctx, ...t }),
           });
-          return { id, ...t };
+          return {
+            branchId,
+            id: t.id,
+            agentId: t.agentId,
+            containerName: t.containerName,
+            image: t.image,
+            oldDigest: t.oldDigest,
+            newDigest: t.newDigest,
+          };
         });
 
         await Promise.all(branches.map(async (b) => {
@@ -1605,7 +1913,7 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
             ? containerLockKey(b.agentId, b.containerName)
             : null;
           if (lockKey && !tryAcquireContainerLock(lockKey, runId)) {
-            runsRepo.updateBranch(b.id, {
+            runsRepo.updateBranch(b.branchId, {
               status: 'failed',
               contextJson: JSON.stringify({
                 ...ctx,
@@ -1624,34 +1932,78 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
               oldDigest: b.oldDigest || ctx.oldDigest,
               newDigest: b.newDigest || ctx.newDigest,
             };
-            let path = branchNodes.filter((n) => n.type !== 'join');
+            const splitHandle = resolveSplitHandleForTarget(graph, node, b);
+            let path = nextNodes(graph, node.id, splitHandle).filter((n) => n.type !== 'join');
+            if (path.length === 0) {
+              const msg = `No path from split for target ${b.containerName || b.agentId} (handle=${splitHandle})`;
+              runsRepo.updateBranch(b.branchId, {
+                status: 'failed',
+                contextJson: JSON.stringify({ ...bctx, error: msg }),
+              });
+              return;
+            }
             const localVisited = new Set<string>();
             while (path.length) {
               const n = path.shift()!;
               if (n.type === 'join') break;
               if (localVisited.has(n.id)) continue;
               localVisited.add(n.id);
-              const r = await executeNode(runId, n, bctx, b.id, dryRun);
-              if (r === 'failed') {
-                setLastOutcome(bctx, 'error', false);
-                runsRepo.updateBranch(b.id, { status: 'failed', contextJson: JSON.stringify(bctx) });
+              const r = await executeNode(runId, n, bctx, b.branchId, dryRun);
+              if (r === 'waiting') {
+                // Não deveria acontecer dentro de um ramo (aprovação fica antes do split)
+                runsRepo.updateBranch(b.branchId, {
+                  status: 'failed',
+                  contextJson: JSON.stringify({
+                    ...bctx,
+                    error: 'unexpected waiting state inside split branch',
+                  }),
+                });
                 return;
               }
               const h = bctx.__nextHandle !== undefined
                 ? String(bctx.__nextHandle)
-                : 'out';
+                : (r === 'failed' ? 'error' : 'out');
               delete bctx.__nextHandle;
-              path.push(...nextNodes(graph, n.id, h).filter((x) => x.type !== 'join'));
+              const next = nextNodes(graph, n.id, h).filter((x) => x.type !== 'join');
+              if (r === 'failed' && next.length === 0) {
+                setLastOutcome(bctx, 'error', false);
+                runsRepo.updateBranch(b.branchId, { status: 'failed', contextJson: JSON.stringify(bctx) });
+                return;
+              }
+              // Seguir handles (incl. failed/error → rollback) mesmo após falha do nó
+              path.push(...next);
             }
-            setLastOutcome(bctx, 'ok', true);
-            runsRepo.updateBranch(b.id, { status: 'success', contextJson: JSON.stringify(bctx) });
+            if (bctx.__branchFailed) {
+              runsRepo.updateBranch(b.branchId, { status: 'failed', contextJson: JSON.stringify(bctx) });
+            } else {
+              setLastOutcome(bctx, 'ok', true);
+              runsRepo.updateBranch(b.branchId, { status: 'success', contextJson: JSON.stringify(bctx) });
+            }          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            runsRepo.updateBranch(b.branchId, {
+              status: 'failed',
+              contextJson: JSON.stringify({ ...ctx, error: msg }),
+            });
           } finally {
             if (lockKey) releaseContainerLock(lockKey, runId);
           }
         }));
 
         const allBranches = runsRepo.branchesBySplit(runId, node.id);
-        ctx.branchResults = allBranches.map((b) => ({
+        // Qualquer ramo ainda "running" = falha (ex. updateBranch com id errado no passado)
+        for (const b of allBranches) {
+          if (b.status === 'running') {
+            runsRepo.updateBranch(b.id, {
+              status: 'failed',
+              contextJson: JSON.stringify({
+                ...(JSON.parse(b.contextJson || '{}') as object),
+                error: 'branch did not complete',
+              }),
+            });
+          }
+        }
+        const finalized = runsRepo.branchesBySplit(runId, node.id);
+        ctx.branchResults = finalized.map((b) => ({
           branchId: b.id,
           agentId: b.agentId,
           containerName: b.containerName,
@@ -1668,9 +2020,9 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
             });
             return;
           }
-          const anyFailed = allBranches.some((b) => b.status === 'failed');
+          const anyFailed = finalized.some((b) => b.status !== 'success');
           if (mode === 'continue_successes') {
-            const ok = allBranches.filter((b) => b.status === 'success').map((b) => b.id);
+            const ok = finalized.filter((b) => b.status === 'success').map((b) => b.id);
             ctx.selectedBranchIds = ok;
             setLastOutcome(ctx, ok.length > 0 ? 'ok' : 'failed', ok.length > 0);
             if (ok.length === 0) setRunOutcome(ctx, 'failed');
@@ -1681,6 +2033,13 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
               finishedAt: new Date(),
               detailJson: detailJson({ mode, branchResults: ctx.branchResults }),
             });
+            runsRepo.update(runId, { contextJson: JSON.stringify(ctx) });
+            // Continuar para nós a seguir do join (IF → rollback / notify) em vez de abortar
+            const afterJoin = nextNodes(graph, join.id, 'out');
+            if (afterJoin.length) {
+              queue.push(...afterJoin);
+              continue;
+            }
             runsRepo.update(runId, {
               status: 'failed',
               finishedAt: new Date(),
@@ -1756,6 +2115,10 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
     }
 
     const status = finalizeRunStatus(ctx);
+    // Limpar dedup de run_flow deste run
+    for (const key of [...runFlowOnceKeys]) {
+      if (key.startsWith(`${runId}:`)) runFlowOnceKeys.delete(key);
+    }
     runsRepo.update(runId, {
       status,
       finishedAt: new Date(),
@@ -1772,6 +2135,9 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
     });
   } catch (e) {
     logger.error('advanceRun error', { runId, err: e });
+    for (const key of [...runFlowOnceKeys]) {
+      if (key.startsWith(`${runId}:`)) runFlowOnceKeys.delete(key);
+    }
     runsRepo.update(runId, {
         status: 'failed',
         finishedAt: new Date(),

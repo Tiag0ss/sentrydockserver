@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import {
   ReactFlow,
   Background,
@@ -9,6 +9,7 @@ import {
   ReactFlowProvider,
   type Node,
   type Edge,
+  type NodeMouseHandler,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { FlowCard } from '@/app/(app)/flows/_components/FlowCard';
@@ -43,6 +44,9 @@ type Props = {
   graph: RunGraph;
   nodeStatuses: NodeStatusMap;
   currentNodeId: string | null;
+  /** Clique num nó (ex. run_flow → abrir modal do filho). */
+  onNodeClick?: (info: { nodeId: string; nodeType: string }) => void;
+  height?: number;
 };
 
 function statusColor(status: string | undefined, isCurrent: boolean): {
@@ -65,10 +69,13 @@ function statusColor(status: string | undefined, isCurrent: boolean): {
   if (status === 'interrupted') {
     return { border: 'var(--warn)', background: 'rgba(255, 180, 84, 0.14)', handle: 'var(--warn)' };
   }
+  if (status === 'waiting_approval' || status === 'awaiting_user') {
+    return { border: 'var(--warn)', background: 'rgba(255, 180, 84, 0.16)', handle: 'var(--warn)' };
+  }
   return { border: 'var(--border)', background: 'var(--panel)', handle: '#5a7aa8' };
 }
 
-function RunFlowCanvas({ graph, nodeStatuses, currentNodeId }: Props) {
+function RunFlowCanvas({ graph, nodeStatuses, currentNodeId, onNodeClick, height = 420 }: Props) {
   const { t } = useI18n();
 
   const { nodes, edges } = useMemo(() => {
@@ -79,12 +86,14 @@ function RunFlowCanvas({ graph, nodeStatuses, currentNodeId }: Props) {
       const colors = statusColor(st?.status, isCurrent);
       const labelKey = `nodes.${nodeType}`;
       const translated = t(labelKey);
+      const clickable = nodeType === 'run_flow' && Boolean(onNodeClick);
       return {
         id: raw.id,
         type: 'flowCard',
         position: raw.position || { x: 80 + (i % 4) * 260, y: 80 + Math.floor(i / 4) * 140 },
         draggable: false,
         selectable: true,
+        style: clickable ? { cursor: 'pointer' } : undefined,
         data: {
           ...raw.data,
           label: translated === labelKey
@@ -116,28 +125,41 @@ function RunFlowCanvas({ graph, nodeStatuses, currentNodeId }: Props) {
           : bothOk
             ? '#3dd68c'
             : '#5a7aa8';
+      const srcNode = (graph.nodes || []).find((n) => n.id === e.source);
       const type = String(
-        (graph.nodes || []).find((n) => n.id === e.source)?.type
-        || (graph.nodes || []).find((n) => n.id === e.source)?.data?.nodeType
+        srcNode?.type
+        || srcNode?.data?.nodeType
         || '',
       );
       return {
         id: e.id || `e-${e.source}-${e.target}-${i}`,
         source: e.source,
         target: e.target,
-        sourceHandle: normalizeHandle(type, e.sourceHandle),
+        sourceHandle: normalizeHandle(type, e.sourceHandle, srcNode?.data || null),
         targetHandle: e.targetHandle || 'in',
-        type: 'smoothstep',
+        type: 'default',
         animated: tgtStatus === 'running',
         style: { stroke, strokeWidth: bothOk || failedPath || rejectedPath ? 2.5 : 1.5 },
       };
     });
 
     return { nodes: rfNodes, edges: rfEdges };
-  }, [graph, nodeStatuses, currentNodeId, t]);
+  }, [graph, nodeStatuses, currentNodeId, t, onNodeClick]);
+
+  const handleNodeClick: NodeMouseHandler = useCallback((_event, node) => {
+    if (!onNodeClick) return;
+    const nodeType = String(node.data?.nodeType || '');
+    onNodeClick({ nodeId: node.id, nodeType });
+  }, [onNodeClick]);
 
   return (
-    <div style={{ height: 420, border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', background: '#0a1020' }}>
+    <div style={{
+      height,
+      border: '1px solid var(--border)',
+      borderRadius: 12,
+      overflow: 'hidden',
+      background: '#0a1020',
+    }}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -147,6 +169,7 @@ function RunFlowCanvas({ graph, nodeStatuses, currentNodeId }: Props) {
         elementsSelectable
         fitView
         proOptions={{ hideAttribution: true }}
+        onNodeClick={onNodeClick ? handleNodeClick : undefined}
       >
         <Background />
         <Controls showInteractive={false} />

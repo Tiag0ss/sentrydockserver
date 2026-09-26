@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { tt } from '@/lib/i18n/translate';
-import { PageHeader, Alert, EmptyState, Panel } from '@/components/ui';
+import { PageHeader, Alert, EmptyState, Panel, Button } from '@/components/ui';
 import { IconButton, IconOpen, IconRefresh } from '@/components/IconActions';
 
 type Run = {
@@ -19,11 +19,19 @@ type Run = {
   finishedAt?: string | null;
   triggerSource: string;
   dryRun?: boolean | number;
-  context?: { containerName?: string; agentId?: string; image?: string } | null;
+  context?: {
+    containerName?: string;
+    agentId?: string;
+    image?: string;
+    targets?: Array<{ containerName?: string }>;
+  } | null;
 };
 
 function contextHint(r: Run): string | null {
-  const parts = [r.context?.containerName, r.context?.image].filter(Boolean);
+  const targets = Array.isArray(r.context?.targets)
+    ? r.context!.targets!.map((x) => x.containerName).filter(Boolean).slice(0, 3).join(', ')
+    : null;
+  const parts = [targets || r.context?.containerName, r.context?.image].filter(Boolean);
   return parts.length ? parts.join(' · ') : null;
 }
 
@@ -74,10 +82,29 @@ export default function RunsPage() {
     }
   }
 
+  async function decide(runId: string, ok: boolean) {
+    setBusyId(runId);
+    setError('');
+    try {
+      await api(`/runs/${runId}/continue`, {
+        method: 'POST',
+        body: JSON.stringify({ continue: ok }),
+      });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('runs.actionError'));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   function RunCard({ r, showStep }: { r: Run; showStep?: boolean }) {
     const hint = contextHint(r);
     const busy = busyId === r.id;
+    const otherBusy = busyId !== null && !busy;
     const step = showStep ? humanStepLabel(t, r) : null;
+    const needsDecision = r.status === 'waiting_approval' || r.status === 'awaiting_user';
+    const isApproval = r.status === 'waiting_approval';
     return (
       <Panel className="sd-entity-card">
         <div className="sd-entity-item">
@@ -102,13 +129,32 @@ export default function RunsPage() {
             </div>
           </div>
           <div className="sd-entity-actions">
+            {needsDecision ? (
+              <>
+                <Button
+                  className="sd-btn-sm"
+                  disabled={busy || otherBusy}
+                  onClick={() => { void decide(r.id, true); }}
+                >
+                  {isApproval ? t('runs.approve') : t('runs.continue')}
+                </Button>
+                <Button
+                  variant="danger"
+                  className="sd-btn-sm"
+                  disabled={busy || otherBusy}
+                  onClick={() => { void decide(r.id, false); }}
+                >
+                  {isApproval ? t('runs.reject') : t('runs.abort')}
+                </Button>
+              </>
+            ) : null}
             <IconButton label={t('runs.openDetail')} onClick={() => router.push(`/runs/${r.id}`)}>
               <IconOpen />
             </IconButton>
             <IconButton
               label={t('runs.rerun')}
               tone="primary"
-              disabled={busy || (busyId !== null && !busy)}
+              disabled={busy || otherBusy}
               onClick={() => { void rerun(r.id); }}
             >
               <IconRefresh />

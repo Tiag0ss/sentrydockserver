@@ -16,7 +16,7 @@ export const NODE_TYPES_LIST = [
   { type: 'run_flow' },
 ] as const;
 
-export type NodePort = { id: string };
+export type NodePort = { id: string; label?: string };
 
 const OUT: NodePort[] = [{ id: 'out' }];
 
@@ -29,13 +29,13 @@ export const ACTION_NODE_TYPES = new Set([
   'notify',
   'webhook',
   'wait_approval',
-  'split',
+  // split tem saídas dinâmicas por contentor — não forçar `out`
   'join',
   'wait_healthy',
   'rollback',
 ]);
 
-/** Saídas estáticas (CASE é dinâmico via data.cases; run_flow depende de wait). */
+/** Saídas estáticas (CASE é dinâmico via data.cases; split via branches/targets; run_flow depende de wait). */
 export const NODE_OUTPUTS: Record<string, NodePort[]> = {
   check_image_update: [{ id: 'update' }, { id: 'no_update' }, { id: 'error' }],
   pull_image: OUT,
@@ -48,7 +48,7 @@ export const NODE_OUTPUTS: Record<string, NodePort[]> = {
   if: [{ id: 'true' }, { id: 'false' }],
   condition: [{ id: 'true' }, { id: 'false' }], // legado → if
   case: [{ id: 'else' }], // fallback; usar getNodeOutputs(type, data)
-  split: OUT,
+  split: OUT, // fallback; usar getNodeOutputs(type, data)
   join: OUT,
   wait_healthy: OUT,
   rollback: OUT,
@@ -56,6 +56,61 @@ export const NODE_OUTPUTS: Record<string, NodePort[]> = {
 };
 
 export type CaseWhen = { id: string; match: string };
+
+export type SplitBranch = {
+  id: string;
+  label: string;
+  agentId?: string;
+  containerName?: string;
+};
+
+function parseTargetLike(row: Record<string, unknown>): SplitBranch | null {
+  const agentId = String(row.agentId || '').trim();
+  const containerName = String(row.containerName || row.label || '').trim();
+  const id = String(row.id || (agentId && containerName ? `${agentId}:${containerName}` : '')).trim();
+  if (!id && !containerName) return null;
+  const handleId = id || containerName;
+  return {
+    id: handleId,
+    label: containerName || handleId,
+    agentId: agentId || undefined,
+    containerName: containerName || undefined,
+  };
+}
+
+/** Ramos do Split: data.branches ou targets manuais. */
+export function getSplitBranches(data?: Record<string, unknown> | null): SplitBranch[] {
+  if (!data) return [];
+  const rawBranches = data.branches;
+  if (Array.isArray(rawBranches) && rawBranches.length) {
+    return rawBranches
+      .map((b) => {
+        if (!b || typeof b !== 'object') return null;
+        return parseTargetLike(b as Record<string, unknown>);
+      })
+      .filter(Boolean) as SplitBranch[];
+  }
+  if (String(data.targetsSource || '') === 'manual' && Array.isArray(data.targets)) {
+    return (data.targets as unknown[])
+      .map((t) => {
+        if (!t || typeof t !== 'object') return null;
+        return parseTargetLike(t as Record<string, unknown>);
+      })
+      .filter(Boolean) as SplitBranch[];
+  }
+  return [];
+}
+
+/** Constrói branches a partir de targets do check (para sync no editor). */
+export function branchesFromTargets(targets: unknown): SplitBranch[] {
+  if (!Array.isArray(targets)) return [];
+  return targets
+    .map((t) => {
+      if (!t || typeof t !== 'object') return null;
+      return parseTargetLike(t as Record<string, unknown>);
+    })
+    .filter(Boolean) as SplitBranch[];
+}
 
 export function getCaseWhens(data?: Record<string, unknown> | null): CaseWhen[] {
   const raw = data?.cases;
@@ -87,10 +142,17 @@ export function getNodeOutputs(
       ? [{ id: 'success' }, { id: 'failed' }, { id: 'error' }]
       : OUT;
   }
+  if (normalized === 'split') {
+    const branches = getSplitBranches(data);
+    if (branches.length) {
+      return branches.map((b) => ({ id: b.id, label: b.label }));
+    }
+    return OUT;
+  }
   return NODE_OUTPUTS[normalized] || OUT;
 }
 
-/** Normaliza handles antigos para o modelo out / IF / CASE / check / run_flow. */
+/** Normaliza handles antigos para o modelo out / IF / CASE / check / run_flow / split. */
 export function normalizeHandle(
   type: string,
   handle: string | null | undefined,
@@ -107,6 +169,12 @@ export function normalizeHandle(
     const wait = data?.wait !== false && data?.wait !== 'false';
     if (!wait) return 'out';
     if (!handle || handle === 'out' || handle === 'ok') return 'success';
+  }
+  if (normalized === 'split') {
+    // Preservar handle por contentor; só aliases genéricos → out
+    if (!handle || handle === 'ok' || handle === 'success') return 'out';
+    if (handle === 'out') return 'out';
+    return handle;
   }
   if (ACTION_NODE_TYPES.has(normalized)) return 'out';
   if (!handle || handle === 'out' || handle === 'success' || handle === 'ok') {

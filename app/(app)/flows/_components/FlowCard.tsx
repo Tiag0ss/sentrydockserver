@@ -20,7 +20,7 @@ export function FlowCard({ data, selected }: NodeProps) {
   const nodeType = String(data.nodeType || '');
   const outputs = getNodeOutputs(nodeType, data as Record<string, unknown>);
   const multi = outputs.length > 1;
-  const outPad = multi ? 78 : 52;
+  const outPad = multi ? 120 : 52;
   const minH = Math.max(56, outputs.length * 22 + 28);
   const title = t(`nodes.${nodeType}`) !== `nodes.${nodeType}`
     ? t(`nodes.${nodeType}`)
@@ -43,7 +43,7 @@ export function FlowCard({ data, selected }: NodeProps) {
       border: `2px solid ${border}`,
       borderRadius: 10,
       padding: `10px ${outPad}px 10px 56px`,
-      minWidth: multi ? 220 : 180,
+      minWidth: multi ? 260 : 180,
       minHeight: minH,
       fontSize: 12,
       position: 'relative',
@@ -115,8 +115,10 @@ export function FlowCard({ data, selected }: NodeProps) {
         const top = multi
           ? `${((i + 1) / (outputs.length + 1)) * 100}%`
           : '50%';
+        const translated = t(`ports.${port.id}`);
         const label = multi
-          ? (t(`ports.${port.id}`) !== `ports.${port.id}` ? t(`ports.${port.id}`) : port.id)
+          ? (port.label
+            || (translated !== `ports.${port.id}` ? translated : port.id))
           : t('flows.output');
         return (
           <div key={port.id}>
@@ -128,9 +130,10 @@ export function FlowCard({ data, selected }: NodeProps) {
               transform: 'translateY(-50%)',
               color: handleColor,
               fontWeight: 600,
-              maxWidth: multi ? 72 : 44,
+              maxWidth: multi ? 110 : 44,
               textAlign: 'right',
               whiteSpace: 'normal',
+              wordBreak: 'break-word',
             }}>
               {label}
             </span>
