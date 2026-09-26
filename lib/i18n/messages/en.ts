@@ -269,7 +269,7 @@ export const en = {
     noContainersOnAgent: 'No containers for this image on this agent.',
     composeProject: 'Compose project (catalog)',
     searchComposeProject: 'Search compose project…',
-    composeInheritHint: 'Selecting a catalog project fills the agent deploy path (~/.sentrydock/compose/…). agentId can come from the Split branch. Prefer Compose for Compose-managed containers.',
+    composeInheritHint: 'Selecting a catalog project fills the agent deploy path. With an agent selected, the absolute path from the agent is preferred (volume-backed when using the bundled agent compose). Prefer Compose for Compose-managed containers.',
     subflow: 'Flow to run',
     searchFlow: 'Search flow…',
     selectFlow: 'Select flow',

@@ -13,8 +13,8 @@ alwaysApply: false
 - Keep SQL/ORM usage in the **repository** / data layer — not in React components, route handlers, or controllers.
 - **Parameterized** queries only. Never concatenate untrusted input into SQL.
 - Transactions: wrap multi-step writes in the pattern the project already uses.
-- Connection/config via env (`SQLITE_PATH` / `DATA_DIR`). Never commit secrets.
+- Connection/config via env (`SQLITE_PATH` / `DATA_DIR` / optional `SQLITE_ENCRYPT` + `SQLITE_ENCRYPTION_KEY`). Never commit secrets.
 - Expose DTOs carefully — do not return raw DB rows with secrets to clients.
 - Destructive changes (drop/rename): raw SQL for the developer to run manually — do not commit ad-hoc fix scripts.
-
+- Optional SQLite file encryption uses `better-sqlite3-multiple-ciphers` (`server/database/db.ts`). Apply `key`/`rekey` before any reads/writes.
 See also: `database-json-schema.mdc`, skill `db-schema-json`.

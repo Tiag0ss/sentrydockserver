@@ -271,7 +271,7 @@ export const ptPT: Messages = {
     noContainersOnAgent: 'Nenhum contentor desta imagem neste agente.',
     composeProject: 'Projecto Compose (catálogo)',
     searchComposeProject: 'Pesquisar projecto Compose…',
-    composeInheritHint: 'Ao escolher um projecto do catálogo, preenche-se o caminho de deploy no agente (~/.sentrydock/compose/…). O agentId pode vir do ramo do Split. Prefira Compose para contentores geridos por Compose.',
+    composeInheritHint: 'Ao escolher um projecto do catálogo, preenche-se o caminho de deploy no agente. Com agente seleccionado, usa-se o path absoluto do agente (em volume no compose bundled). Prefira Compose para contentores geridos por Compose.',
     subflow: 'Flow a executar',
     searchFlow: 'Pesquisar flow…',
     selectFlow: 'Seleccionar flow',

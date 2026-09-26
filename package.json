@@ -17,7 +17,7 @@
     "@grpc/proto-loader": "^0.8.0",
     "@xyflow/react": "^12.8.2",
     "bcryptjs": "^3.0.2",
-    "better-sqlite3": "^13.0.3",
+    "better-sqlite3-multiple-ciphers": "^13.0.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "cron-parser": "^5.3.0",

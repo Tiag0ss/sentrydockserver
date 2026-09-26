@@ -10,6 +10,9 @@ services:
       DATA_DIR: /data
       JWT_SECRET: ${JWT_SECRET:-change-me}
       SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY:-change-me-32-bytes-minimum-secret!!}
+      # Optional SQLite-at-rest encryption (file lives on sentrydock-data volume).
+      SQLITE_ENCRYPT: ${SQLITE_ENCRYPT:-false}
+      SQLITE_ENCRYPTION_KEY: ${SQLITE_ENCRYPTION_KEY:-}
       LOG_RETENTION_DAYS: "90"
       MAX_PARALLEL_COMMANDS: "20"
     volumes:

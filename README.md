@@ -76,13 +76,22 @@ AGENT_TOKEN=... SENTRYDOCK_URL=http://localhost:3000 AGENT_TRANSPORT=ws
 |----------|---------|--------|
 | `PORT` | `3000` | HTTP (UI + API + Socket.IO) |
 | `GRPC_PORT` | `50051` | gRPC for agents |
-| `DATA_DIR` | `./data` | SQLite and local files |
+| `DATA_DIR` | `./data` | SQLite and local files (**use a volume in Docker** — `sentrydock-data:/data` in the bundled compose) |
+| `SQLITE_PATH` | `$DATA_DIR/sentrydock.sqlite` | Override SQLite file path |
+| `SQLITE_ENCRYPT` | `false` | `true` / `1` / `yes` to encrypt the SQLite file at rest |
+| `SQLITE_ENCRYPTION_KEY` | — | Required when `SQLITE_ENCRYPT` is on. Passphrase (hashed to a 256-bit key). **Losing it = losing the DB.** |
 | `JWT_SECRET` | — | **Required in production** |
-| `SECRETS_ENCRYPTION_KEY` | — | **Required in production** (~32+ chars) |
+| `SECRETS_ENCRYPTION_KEY` | — | **Required in production** (~32+ chars). Encrypts secret *values* in the DB (independent of file encryption). |
 | `LOG_RETENTION_DAYS` | `90` | Audit log retention |
 | `MAX_PARALLEL_COMMANDS` | `20` | Parallel commands toward agents |
 
 Never commit a production `.env`. TLS should terminate at a reverse proxy — see [DEPLOYMENT.md](DEPLOYMENT.md).
+
+### Data at rest
+
+- **Volume:** the Docker compose file mounts `sentrydock-data` at `/data` so the SQLite file survives image updates. Avoid `docker compose down -v` unless you intend to wipe it.
+- **Secret values:** always encrypted with `SECRETS_ENCRYPTION_KEY` (AES-GCM) before storage.
+- **Optional whole-DB encryption:** set `SQLITE_ENCRYPT=true` and `SQLITE_ENCRYPTION_KEY=…`. On first start with an existing plaintext DB, SentryDock encrypts it in place (`rekey`). Wrong key → startup fails. Turning encryption off later requires a manual decrypt/export; do not simply set `SQLITE_ENCRYPT=false` on an encrypted file.
 
 ### Scripts
 

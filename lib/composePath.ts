@@ -4,9 +4,10 @@ export function sanitizeComposeProjectName(name: string): string {
 }
 
 /**
- * Canonical path where the agent writes catalog Compose projects
- * (`SENTRYDOCK_COMPOSE_DIR` or `~/.sentrydock/compose/<name>/docker-compose.yml`).
- * `~` is expanded by the agent at runtime.
+ * Canonical path hint where the agent writes catalog Compose projects.
+ * Prefer the absolute path from `docker.compose.status` when an agent is selected.
+ * Default host layout: `~/.sentrydock/compose/<name>/docker-compose.yml`.
+ * In the bundled agent container: `/var/lib/sentrydock/compose` (named volume via `SENTRYDOCK_COMPOSE_DIR`).
  */
 export function expectedComposeDeployPath(projectName: string): string {
   const n = sanitizeComposeProjectName(projectName);

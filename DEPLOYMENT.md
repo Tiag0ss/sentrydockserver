@@ -21,3 +21,15 @@ Expose port 50051 (or terminate gRPC-web/TLS at the proxy). Agents set `SENTRYDO
 ## Secrets
 
 Set strong `JWT_SECRET` and `SECRETS_ENCRYPTION_KEY` (any string hashed to AES key). Never commit production `.env`.
+
+## SQLite persistence and encryption
+
+- Persist `/data` with a volume (`sentrydock-data` in `docker-compose.yml`).
+- Optional at-rest encryption of the whole SQLite file:
+
+```bash
+SQLITE_ENCRYPT=true
+SQLITE_ENCRYPTION_KEY=long-random-passphrase
+```
+
+`SECRETS_ENCRYPTION_KEY` still encrypts registry/token secret *columns*; `SQLITE_ENCRYPT` protects the entire database file if the volume is copied. Keep both keys only in env/secrets manager — losing `SQLITE_ENCRYPTION_KEY` makes the DB unreadable.

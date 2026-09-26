@@ -271,7 +271,7 @@ export const es: Messages = {
     noContainersOnAgent: 'Ningún contenedor de esta imagen en este agente.',
     composeProject: 'Proyecto Compose (catálogo)',
     searchComposeProject: 'Buscar proyecto Compose…',
-    composeInheritHint: 'Al elegir un proyecto del catálogo se rellena la ruta de deploy en el agente (~/.sentrydock/compose/…). agentId puede venir de la rama del Split. Prefiere Compose para contenedores gestionados por Compose.',
+    composeInheritHint: 'Al elegir un proyecto del catálogo se rellena la ruta de deploy en el agente. Con agente seleccionado se usa la ruta absoluta del agente (en volumen con el compose del agent). Prefiere Compose para contenedores gestionados por Compose.',
     subflow: 'Flow a ejecutar',
     searchFlow: 'Buscar flow…',
     selectFlow: 'Seleccionar flow',
