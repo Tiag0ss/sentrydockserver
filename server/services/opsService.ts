@@ -73,6 +73,60 @@ export function listRuns(status?: string) {
   return runsRepo.list(status).map((r) => enrichRun(r, names, graphs));
 }
 
+export type ListRunsQuery = {
+  status?: string;
+  q?: string;
+  flowId?: string;
+  runStatus?: string;
+  trigger?: string;
+  dryRun?: string;
+  topLevelOnly?: string;
+  page?: string | number;
+  pageSize?: string | number;
+};
+
+export function listRunsPaged(query: ListRunsQuery = {}) {
+  const names = flowNameMap();
+  const graphs = flowGraphMap();
+
+  const bucketRaw = String(query.status || '').trim();
+  const bucket: 'active' | 'history' | 'all' =
+    bucketRaw === 'active' || bucketRaw === 'history' ? bucketRaw : 'all';
+
+  let dryRun: boolean | null = null;
+  if (query.dryRun === '1' || query.dryRun === 'true') dryRun = true;
+  else if (query.dryRun === '0' || query.dryRun === 'false') dryRun = false;
+
+  const result = runsRepo.query({
+    bucket,
+    status: query.runStatus?.trim() || undefined,
+    flowId: query.flowId?.trim() || undefined,
+    trigger: query.trigger?.trim() || undefined,
+    q: query.q?.trim() || undefined,
+    dryRun,
+    topLevelOnly: query.topLevelOnly === '1' || query.topLevelOnly === 'true',
+    page: Number(query.page || 1),
+    pageSize: Number(query.pageSize || (bucket === 'active' ? 100 : 20)),
+  });
+
+  const facetsRaw = runsRepo.facets(bucket === 'all' ? 'history' : bucket);
+  const flows = facetsRaw.flowIds
+    .map((id) => ({ id, name: names.get(id) || id.slice(0, 8) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return {
+    items: result.items.map((r) => enrichRun(r, names, graphs)),
+    total: result.total,
+    page: result.page,
+    pageSize: result.pageSize,
+    facets: {
+      flows,
+      statuses: facetsRaw.statuses,
+      triggers: facetsRaw.triggers,
+    },
+  };
+}
+
 export function getRun(id: string) {
   const run = runsRepo.findById(id);
   if (!run) throw new AppError(404, 'not found', 'not_found');

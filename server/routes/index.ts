@@ -183,7 +183,36 @@ apiRouter.post('/flows/:id/run', authRequired, requirePasswordOk, requireModify,
 }));
 
 apiRouter.get('/runs', authRequired, requirePasswordOk, (req, res) => {
-  res.json(ops.listRuns(req.query.status as string | undefined));
+  const q = req.query;
+  const wantsPaged =
+    q.page != null
+    || q.pageSize != null
+    || q.q != null
+    || q.flowId != null
+    || q.runStatus != null
+    || q.trigger != null
+    || q.dryRun != null
+    || q.topLevelOnly != null
+    || q.paged === '1'
+    || q.paged === 'true';
+
+  if (wantsPaged || String(q.status || '') === 'history') {
+    res.json(ops.listRunsPaged({
+      status: q.status as string | undefined,
+      q: q.q as string | undefined,
+      flowId: q.flowId as string | undefined,
+      runStatus: q.runStatus as string | undefined,
+      trigger: q.trigger as string | undefined,
+      dryRun: q.dryRun as string | undefined,
+      topLevelOnly: q.topLevelOnly as string | undefined,
+      page: q.page as string | undefined,
+      pageSize: q.pageSize as string | undefined,
+    }));
+    return;
+  }
+
+  // Compat: active (and unfiltered) still return a plain array
+  res.json(ops.listRuns(q.status as string | undefined));
 });
 
 apiRouter.get('/runs/:id', authRequired, requirePasswordOk, asyncHandler(async (req, res) => {

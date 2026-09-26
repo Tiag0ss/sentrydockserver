@@ -12,10 +12,26 @@ import {
   webhookTriggers,
   settings,
   notifications,
+  flows,
 } from '../database/schema';
 
 const ACTIVE = ['running', 'waiting_approval', 'awaiting_user', 'resume_pending', 'interrupted'] as const;
 const HISTORY = ['success', 'failed', 'aborted', 'rejected'] as const;
+
+export type RunsListQuery = {
+  /** Bucket: active | history | all (default all) */
+  bucket?: 'active' | 'history' | 'all';
+  /** Exact status filter (within bucket) */
+  status?: string;
+  flowId?: string;
+  trigger?: string;
+  q?: string;
+  dryRun?: boolean | null;
+  /** Exclude nested/subflow runs */
+  topLevelOnly?: boolean;
+  page?: number;
+  pageSize?: number;
+};
 
 export const runsRepo = {
   list(status?: string) {
@@ -24,6 +40,82 @@ export const runsRepo = {
     else if (status === 'history') rows = rows.filter((r) => (HISTORY as readonly string[]).includes(r.status));
     return rows;
   },
+
+  query(opts: RunsListQuery = {}) {
+    const page = Math.max(1, Number(opts.page || 1));
+    const pageSize = Math.min(100, Math.max(1, Number(opts.pageSize || 20)));
+    const conditions = [];
+
+    const bucket = opts.bucket || 'all';
+    if (bucket === 'active') {
+      conditions.push(inArray(flowRuns.status, [...ACTIVE]));
+    } else if (bucket === 'history') {
+      conditions.push(inArray(flowRuns.status, [...HISTORY]));
+    }
+
+    if (opts.status) conditions.push(eq(flowRuns.status, opts.status));
+    if (opts.flowId) conditions.push(eq(flowRuns.flowId, opts.flowId));
+    if (opts.trigger) conditions.push(eq(flowRuns.triggerSource, opts.trigger));
+    if (opts.dryRun === true) conditions.push(eq(flowRuns.dryRun, true));
+    if (opts.dryRun === false) conditions.push(eq(flowRuns.dryRun, false));
+    if (opts.topLevelOnly) conditions.push(isNull(flowRuns.parentRunId));
+
+    if (opts.q?.trim()) {
+      const raw = opts.q.trim().replace(/[%_]/g, '');
+      const needle = `%${raw}%`;
+      const flowIds = db.select({ id: flows.id }).from(flows)
+        .where(like(flows.name, needle))
+        .all()
+        .map((f) => f.id);
+      const qOr = [
+        like(flowRuns.id, needle),
+        like(flowRuns.contextJson, needle),
+        like(flowRuns.lockKey, needle),
+        like(flowRuns.triggerSource, needle),
+        like(flowRuns.status, needle),
+      ];
+      if (flowIds.length) qOr.push(inArray(flowRuns.flowId, flowIds));
+      conditions.push(or(...qOr));
+    }
+
+    const where = conditions.length ? and(...conditions) : undefined;
+    const totalRow = where
+      ? db.select({ n: sql<number>`count(*)` }).from(flowRuns).where(where).get()
+      : db.select({ n: sql<number>`count(*)` }).from(flowRuns).get();
+    const total = Number(totalRow?.n || 0);
+    const offset = (page - 1) * pageSize;
+
+    const items = where
+      ? db.select().from(flowRuns).where(where).orderBy(desc(flowRuns.startedAt)).limit(pageSize).offset(offset).all()
+      : db.select().from(flowRuns).orderBy(desc(flowRuns.startedAt)).limit(pageSize).offset(offset).all();
+
+    return { items, total, page, pageSize };
+  },
+
+  /** Distinct values for filter dropdowns (within a bucket). */
+  facets(bucket: 'active' | 'history' | 'all' = 'history') {
+    const conditions = [];
+    if (bucket === 'active') conditions.push(inArray(flowRuns.status, [...ACTIVE]));
+    else if (bucket === 'history') conditions.push(inArray(flowRuns.status, [...HISTORY]));
+    const where = conditions.length ? and(...conditions) : undefined;
+    const rows = where
+      ? db.select({
+        status: flowRuns.status,
+        triggerSource: flowRuns.triggerSource,
+        flowId: flowRuns.flowId,
+      }).from(flowRuns).where(where).all()
+      : db.select({
+        status: flowRuns.status,
+        triggerSource: flowRuns.triggerSource,
+        flowId: flowRuns.flowId,
+      }).from(flowRuns).all();
+
+    const statuses = [...new Set(rows.map((r) => r.status))].sort();
+    const triggers = [...new Set(rows.map((r) => r.triggerSource))].sort();
+    const flowIds = [...new Set(rows.map((r) => r.flowId))];
+    return { statuses, triggers, flowIds };
+  },
+
   findById(id: string) {
     return db.select().from(flowRuns).where(eq(flowRuns.id, id)).get();
   },
