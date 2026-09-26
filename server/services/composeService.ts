@@ -8,6 +8,7 @@ import { getGlobalComposeEnv } from './secretsService';
 import { resolveSdImageEnvForYaml, scanSdImageKeys, listRunningContainersForImage } from './imagesService';
 import { imagesRepo } from '../repositories/imagesRepo';
 import { hashComposeDesired, hashYamlOnly } from './imageTarget';
+import { expectedComposeDeployPath } from '../../lib/composePath';
 import { AppError } from '../utils/errors';
 import logger from '../utils/logger';
 
@@ -213,6 +214,7 @@ export async function deployComposeProject(
     status: string;
     skipped?: boolean;
     error?: string;
+    projectPath?: string;
   }> = [];
 
   for (const agentId of agentIds) {
@@ -259,7 +261,7 @@ export async function deployComposeProject(
           forceRecreate: Boolean(input.force),
         },
         600_000,
-      ) as { services?: unknown[] };
+      ) as { services?: unknown[]; projectPath?: string };
 
       upsertState(id, agentId, {
         desiredHash,
@@ -270,7 +272,12 @@ export async function deployComposeProject(
         lastError: null,
         servicesJson: JSON.stringify(res.services || []),
       });
-      results.push({ agentId, agentName, status: 'synced' });
+      results.push({
+        agentId,
+        agentName,
+        status: 'synced',
+        ...(res.projectPath ? { projectPath: res.projectPath } : {}),
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.warn('compose deploy failed', { agentId, projectId: id, err: msg });
@@ -302,7 +309,13 @@ export async function checkComposeProject(id: string, agentIds?: string[]) {
     ? agentIds
     : composeStatesRepo.listByProject(id).map((s) => s.agentId);
 
-  const results: Array<{ agentId: string; status: string; error?: string }> = [];
+  const results: Array<{
+    agentId: string;
+    status: string;
+    error?: string;
+    projectPath?: string;
+    exists?: boolean;
+  }> = [];
 
   for (const agentId of targets) {
     try {
@@ -323,7 +336,7 @@ export async function checkComposeProject(id: string, agentIds?: string[]) {
         'docker.compose.status',
         { projectName: project.name },
         60_000,
-      ) as { exists?: boolean; services?: unknown[]; error?: string };
+      ) as { exists?: boolean; services?: unknown[]; error?: string; projectPath?: string };
 
       const existing = composeStatesRepo.find(id, agentId);
       let status = 'absent';
@@ -339,7 +352,12 @@ export async function checkComposeProject(id: string, agentIds?: string[]) {
         lastError: res.error || null,
         servicesJson: JSON.stringify(res.services || []),
       });
-      results.push({ agentId, status });
+      results.push({
+        agentId,
+        status,
+        exists: Boolean(res.exists),
+        ...(res.projectPath ? { projectPath: res.projectPath } : {}),
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       upsertState(id, agentId, {
@@ -518,6 +536,7 @@ function buildBasicComposeUpdateGraph(opts: {
           nodeType: 'compose_up',
           retries: 1,
           composeProjectId: opts.composeProjectId,
+          projectPath: expectedComposeDeployPath(opts.projectName),
           ...(t.agentId ? { agentId: t.agentId, containerName: t.containerName } : {}),
         },
       },

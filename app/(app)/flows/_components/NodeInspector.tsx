@@ -14,6 +14,11 @@ import {
   inputStyle,
 } from './flowConstants';
 import { SearchSelect, type SearchOption } from './SearchSelect';
+import {
+  composeNodeMisconfigured,
+  composeNodeMissingPath,
+  expectedComposeDeployPath,
+} from '@/lib/composePath';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { tt } from '@/lib/i18n/translate';
 
@@ -166,6 +171,7 @@ export function NodeInspector({ selectedNode, nodes = [], edges = [], onPatch }:
 
   const agentId = selectedNode ? String(selectedNode.data.agentId || '') : '';
   const catalogImageId = selectedNode ? String(selectedNode.data.imageId || '') : '';
+  const composeProjectId = selectedNode ? String(selectedNode.data.composeProjectId || '') : '';
 
   useEffect(() => {
     if (!agentId) {
@@ -186,6 +192,52 @@ export function NodeInspector({ selectedNode, nodes = [], edges = [], onPatch }:
     })();
     return () => { cancelled = true; };
   }, [agentId]);
+
+  // Backfill deploy path when a catalog project is set but path is empty.
+  useEffect(() => {
+    if (!selectedNode || !composeProjects.length) return;
+    const type = String(selectedNode.data.nodeType || '');
+    if (!['compose_up', 'compose_down'].includes(type)) return;
+    if (!composeProjectId) return;
+    if (String(selectedNode.data.projectPath || '').trim()) return;
+    const project = composeProjects.find((p) => p.id === composeProjectId);
+    if (!project) return;
+    onPatch(selectedNode.id, { projectPath: expectedComposeDeployPath(project.name) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [composeProjectId, composeProjects, selectedNode?.id]);
+
+  // Resolve absolute deploy path on the agent when catalog project + agent are set.
+  useEffect(() => {
+    if (!selectedNode) return;
+    const type = String(selectedNode.data.nodeType || '');
+    if (!['compose_up', 'compose_down'].includes(type)) return;
+    if (!composeProjectId || !agentId) return;
+    const nodeId = selectedNode.id;
+    const currentPath = String(selectedNode.data.projectPath || '').trim();
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await api<{
+          results?: Array<{ agentId: string; projectPath?: string }>;
+        }>(`/compose-projects/${composeProjectId}/check`, {
+          method: 'POST',
+          body: JSON.stringify({ agentIds: [agentId] }),
+        });
+        if (cancelled) return;
+        const row = res.results?.find((r) => r.agentId === agentId);
+        const abs = row?.projectPath?.trim();
+        if (!abs || abs === currentPath) return;
+        const looksManaged = !currentPath
+          || currentPath.startsWith('~/')
+          || currentPath.includes('/.sentrydock/compose/');
+        if (looksManaged) onPatch(nodeId, { projectPath: abs });
+      } catch {
+        /* keep hint path */
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-resolve when agent/project change
+  }, [agentId, composeProjectId, selectedNode?.id]);
 
   const agentOptions: SearchOption[] = useMemo(
     () => agents.map((a) => ({
@@ -444,6 +496,8 @@ export function NodeInspector({ selectedNode, nodes = [], edges = [], onPatch }:
         {hint}
       </p>
 
+      {field('label', t('inspector.nodeLabel'), tt(t, 'nodes', type))}
+
       <div style={{
         border: '1px solid var(--border)',
         borderRadius: 8,
@@ -550,15 +604,47 @@ export function NodeInspector({ selectedNode, nodes = [], edges = [], onPatch }:
 
       {['compose_up', 'compose_down'].includes(type) && (
         <>
+          {composeNodeMisconfigured(selectedNode.data as Record<string, unknown>) && (
+            <div style={{
+              border: '1px solid var(--danger)',
+              background: 'color-mix(in srgb, var(--danger) 12%, transparent)',
+              color: 'var(--danger)',
+              borderRadius: 8,
+              padding: '8px 10px',
+              fontSize: 12,
+            }}>
+              {t('inspector.composeMissingConfig')}
+            </div>
+          )}
+          {!composeNodeMisconfigured(selectedNode.data as Record<string, unknown>)
+            && composeNodeMissingPath(selectedNode.data as Record<string, unknown>) && (
+            <div style={{
+              border: '1px solid var(--danger)',
+              background: 'color-mix(in srgb, var(--danger) 12%, transparent)',
+              color: 'var(--danger)',
+              borderRadius: 8,
+              padding: '8px 10px',
+              fontSize: 12,
+            }}>
+              {t('inspector.composeMissingPath')}
+            </div>
+          )}
           <SearchSelect
             label={t('inspector.composeProject')}
             value={String(selectedNode.data.composeProjectId || '')}
             options={composeProjects.map((p) => ({ value: p.id, label: p.name }))}
-            onChange={(v) => patch('composeProjectId', v)}
+            onChange={(v) => {
+              const project = composeProjects.find((p) => p.id === v);
+              const next: Record<string, unknown> = { composeProjectId: v };
+              if (project) {
+                next.projectPath = expectedComposeDeployPath(project.name);
+              }
+              onPatch(id, next);
+            }}
             placeholder={t('inspector.searchComposeProject')}
             emptyLabel={t('common.none')}
           />
-          {field('projectPath', t('inspector.projectPath'), '/path/to/compose')}
+          {field('projectPath', t('inspector.projectPath'), '~/.sentrydock/compose/…/docker-compose.yml')}
           <div style={{ fontSize: 11, color: 'var(--muted)' }}>
             {t('inspector.composeInheritHint')}
           </div>

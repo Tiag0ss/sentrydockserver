@@ -25,9 +25,9 @@ Outbound connection from agent with token:
 | `docker.inspect` | `{ id: string }` |
 | `docker.pull` | `{ image: string, auth?: { username, password, serveraddress } }` |
 | `docker.recreate` | `{ id: string, image?: string, desiredDigest?: string }` |
-| `docker.compose` | `{ action: "up"\|"down", projectPath: string, image?: string }` |
-| `docker.compose.apply` | `{ projectName, yaml, env?, registryAuths?, action?: "up"\|"down" }` |
-| `docker.compose.status` | `{ projectName }` → `{ exists, services? }` |
+| `docker.compose` | `{ action: "up"\|"down", projectPath: string, image?: string }` — `projectPath` must exist (file or dir with compose.yaml); `~` expanded |
+| `docker.compose.apply` | `{ projectName, yaml, env?, registryAuths?, action?: "up"\|"down" }` → writes under compose root, returns `projectPath` |
+| `docker.compose.status` | `{ projectName }` → `{ exists, projectPath?, services? }` |
 | `image.digest` | `{ image: string, auth?: ... }` → remote registry digest |
 | `image.runningDigest` | `{ id: string }` → digests of the image the container is running |
 | `image.checkUpdate` | `{ id|containerId, image, auth? }` → `{ updateAvailable, remoteDigest, localDigests }` |

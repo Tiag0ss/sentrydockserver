@@ -2,6 +2,7 @@
 
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { getNodeOutputs } from './flowConstants';
+import { composeNodeMisconfigured, composeNodeMissingPath } from '@/lib/composePath';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { tt } from '@/lib/i18n/translate';
 
@@ -33,8 +34,18 @@ export function FlowCard({ data, selected }: NodeProps) {
   const runError = data.runError ? String(data.runError) : null;
   const isCurrent = Boolean(data.isCurrent);
 
-  const border = runColors?.border
-    || (selected ? 'var(--accent)' : 'var(--border)');
+  const isCompose = nodeType === 'compose_up' || nodeType === 'compose_down';
+  const composeBad = isCompose && composeNodeMisconfigured(data as Record<string, unknown>);
+  const composeNoPath = isCompose && !composeBad && composeNodeMissingPath(data as Record<string, unknown>);
+  const configError = composeBad
+    ? t('inspector.composeMissingConfig')
+    : composeNoPath
+      ? t('inspector.composeMissingPath')
+      : null;
+
+  const border = configError && !runColors
+    ? 'var(--danger)'
+    : (runColors?.border || (selected ? 'var(--accent)' : 'var(--border)'));
   const background = runColors?.background
     || (selected ? '#1e2a44' : 'var(--panel)');
   const handleColor = runColors?.handle || 'var(--accent)';
@@ -81,6 +92,17 @@ export function FlowCard({ data, selected }: NodeProps) {
       </span>
 
       <div style={{ fontWeight: 600 }}>{title}</div>
+      {configError && !runStatus && (
+        <div style={{
+          marginTop: 4,
+          fontSize: 10,
+          color: 'var(--danger)',
+          maxWidth: 160,
+          lineHeight: 1.3,
+        }} title={configError}>
+          {configError}
+        </div>
+      )}
       {runStatus && runStatus !== 'pending' && (
         <div style={{
           marginTop: 4,

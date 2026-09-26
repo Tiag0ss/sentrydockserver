@@ -5,6 +5,7 @@ import { audit } from './audit';
 import { startFlowRun } from './flowEngine';
 import { migrateFlowGraph } from './flowGraphMigrate';
 import { nextCronDate } from './cronUtils';
+import { expectedComposeDeployPath } from '../../lib/composePath';
 import { AppError } from '../utils/errors';
 import logger from '../utils/logger';
 
@@ -460,6 +461,9 @@ function buildContainerUpdateGraph(opts: {
           nodeType: 'compose_up',
           retries: 1,
           composeProjectId: t.composeProjectId,
+          ...(t.composeProject
+            ? { projectPath: expectedComposeDeployPath(t.composeProject) }
+            : {}),
           agentId: t.agentId,
           containerName: t.containerName,
         },

@@ -1245,6 +1245,7 @@ async function executeNode(
                 image,
                 skipped: Boolean(row?.skipped),
                 containerName: branchContainer || undefined,
+                projectPath: row?.projectPath || undefined,
               }),
             });
           } else {
@@ -1253,16 +1254,16 @@ async function executeNode(
                 'projectPath or composeProjectId is required for Compose nodes. For a standalone container, use Recreate instead of Compose up.',
               );
             }
-            await agentGateway.sendCommand(agentId, 'docker.compose', {
+            const composeRes = await agentGateway.sendCommand(agentId, 'docker.compose', {
               action: node.type === 'compose_up' ? 'up' : 'down',
               projectPath,
               ...(node.type === 'compose_up' && image ? { image } : {}),
-            });
+            }) as { projectPath?: string };
             await upsertStep(runId, node.id, branchId, 'success', {
               finishedAt: new Date(),
               detailJson: detailJson({
                 agentId,
-                projectPath,
+                projectPath: composeRes.projectPath || projectPath,
                 action: node.type === 'compose_up' ? 'up' : 'down',
                 image,
               }),
