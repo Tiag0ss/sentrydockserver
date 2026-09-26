@@ -48,7 +48,6 @@ function openSqlite(filePath: string): InstanceType<typeof Database> {
 
   const exists = fs.existsSync(filePath);
   const sizeBefore = exists ? fs.statSync(filePath).size : 0;
-  const wasPlain = sizeBefore > 0 && looksLikePlainSqlite(filePath);
   const wasEncrypted = sizeBefore > 0 && !looksLikePlainSqlite(filePath);
 
   if (wasEncrypted && !encrypt) {
