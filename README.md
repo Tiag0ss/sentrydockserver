@@ -87,6 +87,17 @@ AGENT_TOKEN=... SENTRYDOCK_URL=http://localhost:3000 AGENT_TRANSPORT=ws
 
 Never commit a production `.env`. TLS should terminate at a reverse proxy — see [DEPLOYMENT.md](DEPLOYMENT.md).
 
+### CI / CD
+
+Same split as Synapse / Myelin:
+
+| System | File | When | What |
+|--------|------|------|------|
+| **GitHub Actions** | `.github/workflows/ci.yml` | push/PR to `main`/`master` | `pnpm install`, lint, test, typecheck |
+| **Woodpecker** | `.woodpecker.yaml` | tag `V*` (e.g. `V0.1.0`) | same checks, then build/push `tiag0ss/sentrydock-server` (`latest` + version) |
+
+Woodpecker needs secrets `DOCKER_USERNAME` / `DOCKER_PASSWORD`.
+
 ### Data at rest
 
 - **Volume:** the Docker compose file mounts `sentrydock-data` at `/data` so the SQLite file survives image updates. Avoid `docker compose down -v` unless you intend to wipe it.
