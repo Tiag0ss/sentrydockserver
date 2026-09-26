@@ -2,7 +2,7 @@
  * Manual DB reset: drop all tables, rebuild schema from systemtables JSON,
  * re-seed defaults, and restore the `agents` rows so installed tokens keep working.
  *
- * Usage (from server/):
+ * Usage (from SentryDockServer/):
  *   pnpm reset-db-keep-agents
  *
  * Never runs on boot — invoke explicitly after schema changes that remove columns

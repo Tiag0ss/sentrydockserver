@@ -1,8 +1,44 @@
-# SentryDock Server
+# SentryDockServer
 
-Painel central: Next.js + Express, agentes via WebSocket ou gRPC, fluxos visuais, updates de imagens.
+**SentryDockServer** is the control plane of SentryDock: the place where you manage Docker hosts, define how images and Compose stacks are updated, and watch every run from one UI.
 
-## Desenvolvimento
+It does **not** talk to Docker directly. Remote hosts run **SentryDockAgent**, which connects outbound to this server. You operate the fleet here; agents execute on the machines.
+
+---
+
+## What this project does
+
+### One panel for many Docker hosts
+
+Register agents, issue tokens, set labels and per-host environment variables. Online agents stream inventory (disk usage, dangling images, container counts) into the dashboard so you see fleet health without SSHing around.
+
+### Image catalog and Compose as source of truth
+
+Maintain a catalog of Docker images (follow a tag, pin a tag, or semver range). Reference them in Compose as `${SD_IMAGE_<key>}`. Store Compose YAML in the panel, deploy it to selected agents, and track per-host sync / drift. Global secrets and agent env fill `${VAR}` placeholders (agent env wins).
+
+### Visual flows instead of ad-hoc scripts
+
+Build automation graphs: check for image updates, pull, recreate containers, apply Compose, wait for healthy, ask for approval, notify (Slack / Discord / webhooks), branch with IF / CASE, fan out with Split / Join, roll back to a previous digest, or call another flow as a subflow.
+
+Flows can run manually, on a cron (with timezone and blackout windows), or as dry-runs that skip side effects. When something needs a human, the dashboard inbox and notifications surface it.
+
+### Full run history and ops inbox
+
+Every flow execution is a run with steps, context, digests, and outcomes. Nested `run_flow` runs stay linked to the parent. The runs page supports search, filters, pagination, and live updates while work is active. Approvals and failures show up where you can act.
+
+### Accounts, secrets, audit
+
+Role-based users (modify / monitor), encrypted secrets (registry credentials, tokens, headers), reusable message templates, webhook endpoints, audit logs, and in-app notifications.
+
+### Stack (for orientation)
+
+Next.js UI + Express API, SQLite, Socket.IO (UI + agents) and optional gRPC for agents. Shared wire protocol: [protocol/PROTOCOL.md](protocol/PROTOCOL.md).
+
+Companion repo: **SentryDockAgent**.
+
+---
+
+## Quick start
 
 ```bash
 cp .env.example .env
@@ -10,32 +46,59 @@ pnpm install
 pnpm dev
 ```
 
-Abre http://localhost:3000 — na primeira subida o login é `admin` / `admin` (é obrigatório mudar a password).
+Open [http://localhost:3000](http://localhost:3000).
 
-## Docker
+First boot (empty DB): sign in as `admin` / `admin` — you must change the password. Afterwards use your own credentials.
+
+Docker:
 
 ```bash
 docker compose up -d --build
 ```
 
-Dados SQLite em volume `sentrydock-data` (`DATA_DIR=/data`).
+HTTP `:3000`, gRPC `:50051`, data in volume `sentrydock-data`.
 
-## Base de dados
+### Connect an agent
 
-Esquema em JSON (`server/database/structure/systemtables/`). No arranque o `schemaBuilder` cria tabelas e adiciona colunas em falta (estilo Myelin, só SQLite). Não uses ficheiros de migration SQL.
-
-Para aplicar remoções de colunas/tabelas (o builder não apaga) e começar de fresco **sem perder agentes instalados**:
+1. **Agents → Create** → copy the token  
+2. On the agent host / **SentryDockAgent** repo:
 
 ```bash
-pnpm reset-db-keep-agents
+AGENT_TOKEN=... SENTRYDOCK_URL=http://localhost:3000 AGENT_TRANSPORT=ws
+# or gRPC: AGENT_TRANSPORT=grpc SENTRYDOCK_GRPC_URL=localhost:50051
 ```
 
-Isto faz drop de todas as tabelas, reconstrói o schema, faz seed (admin/templates/settings) e restaura as linhas de `agents` (tokens intactos). Flows, secrets, compose, etc. são apagados de propósito.
+---
 
-## TLS
+## Configuration
 
-Em produção termina TLS num reverse proxy (Caddy/Traefik/Nginx) para `:3000` e, se usares gRPC, configura TLS no proxy ou `GRPC` com certificados. Os agentes devem usar `https://` / endpoint seguro.
+| Variable | Default | Notes |
+|----------|---------|--------|
+| `PORT` | `3000` | HTTP (UI + API + Socket.IO) |
+| `GRPC_PORT` | `50051` | gRPC for agents |
+| `DATA_DIR` | `./data` | SQLite and local files |
+| `JWT_SECRET` | — | **Required in production** |
+| `SECRETS_ENCRYPTION_KEY` | — | **Required in production** (~32+ chars) |
+| `LOG_RETENTION_DAYS` | `90` | Audit log retention |
+| `MAX_PARALLEL_COMMANDS` | `20` | Parallel commands toward agents |
 
-## Protocolo
+Never commit a production `.env`. TLS should terminate at a reverse proxy — see [DEPLOYMENT.md](DEPLOYMENT.md).
 
-Ver [protocol/PROTOCOL.md](protocol/PROTOCOL.md).
+### Scripts
+
+| Command | Description |
+|---------|-------------|
+| `pnpm dev` | Watch mode |
+| `pnpm build` / `pnpm start` | Production build / run |
+| `pnpm lint` / `pnpm typecheck` / `pnpm test` | Quality gates |
+| `pnpm reset-db-keep-agents` | Wipe DB, reseed, **keep** agent tokens |
+
+Schema lives in `server/database/structure/systemtables/` (JSON). Startup adds missing tables/columns; it does not drop them. Use `reset-db-keep-agents` after destructive schema changes if you need a clean slate without re-installing agents.
+
+---
+
+## Related docs
+
+- [DEPLOYMENT.md](DEPLOYMENT.md) — TLS / reverse proxy
+- [protocol/PROTOCOL.md](protocol/PROTOCOL.md) — server ↔ agent messages
+- **SentryDockAgent** — Docker agent (separate repo)
