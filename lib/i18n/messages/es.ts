@@ -324,7 +324,7 @@ export const es: Messages = {
     split: 'Ramas paralelas: una salida por contenedor de ctx.targets. Conecta cada salida al camino de ese contenedor; luego Join.',
     join: 'Espera ramas del Split. Modo wait_all / continue_successes / await_user.',
     notify: 'Crea una notificación visible (soporta {{tags}}). No afecta el éxito/fallo del run.',
-    webhook: 'HTTP con plantilla {{campo}}. No afecta el éxito/fallo del run; OK/Error solo eligen el siguiente node.',
+    webhook: 'HTTP JSON. Elige una plantilla con el formato del destino (Slack usa text, Discord usa content). Fallo → run failed.',
     rollback: 'Recrea con previousImage / previousDigest del contexto.',
     run_flow: 'Inicia otro flow. Con wait: success / failed / error. Los runs anidados aparecen en el padre.',
     default: 'Conecta las salidas de la derecha al siguiente node.',

@@ -38,7 +38,7 @@ export type FlowGraph = { nodes: FlowNode[]; edges: FlowEdge[] };
 type RunContext = Record<string, unknown>;
 
 /** Nodes that emit side-effects only — never decide the run outcome. */
-const SIDE_EFFECT_NODE_TYPES = new Set(['notify', 'webhook']);
+const SIDE_EFFECT_NODE_TYPES = new Set(['notify']);
 
 function setRunOutcome(ctx: RunContext, outcome: 'success' | 'failed' | 'rejected') {
   const current = ctx.__runOutcome ? String(ctx.__runOutcome) : null;
@@ -155,6 +155,23 @@ function renderTemplate(body: string, ctx: RunContext, opts?: { human?: boolean 
       return String(v);
     }
   });
+}
+
+/** Mask credentials embedded in webhook URLs (Discord token path, basic auth, …). */
+function redactWebhookUrl(url: string): string {
+  const maskedAuth = url.replace(/\/\/.*@/, '//***@');
+  try {
+    const u = new URL(maskedAuth);
+    // Discord: /api/webhooks/{id}/{token}
+    const m = u.pathname.match(/^(\/api\/webhooks\/[^/]+\/)(.+)$/i);
+    if (m) {
+      u.pathname = `${m[1]}***`;
+      return u.toString();
+    }
+  } catch {
+    /* keep maskedAuth */
+  }
+  return maskedAuth;
 }
 
 function recordNodeFailure(ctx: RunContext, node: FlowNode, error: string) {
@@ -1314,43 +1331,52 @@ async function executeNode(
             if (tpl?.body) templateBody = tpl.body;
           }
           const body = renderTemplate(templateBody, ctx);
+          const safeUrl = redactWebhookUrl(url);
           const headers: Record<string, string> = {
             'Content-Type': 'application/json',
             ...((node.data.headers as Record<string, string>) || {}),
           };
           try {
             const res = await fetch(url, { method, headers, body });
+            const responseText = await res.text().catch(() => '');
             await audit({
               actor: 'system',
               action: 'webhook.sent',
               flowRunId: runId,
               payload: {
-                url: url.replace(/\/\/.*@/, '//***@'),
+                url: safeUrl,
                 status: res.status,
                 templateKey: templateKey || null,
                 bodyPreview: body.slice(0, 500),
+                responsePreview: responseText.slice(0, 300) || undefined,
               },
             });
             if (!res.ok) {
               ctx.__nextHandle = 'error';
-            setLastOutcome(ctx, 'error', false);
+              setLastOutcome(ctx, 'error', false);
+              setRunOutcome(ctx, 'failed');
+              const hint = responseText.trim().slice(0, 180);
+              const errMsg = hint
+                ? `Webhook HTTP ${res.status}: ${hint}`
+                : `Webhook HTTP ${res.status}`;
+              recordNodeFailure(ctx, node, errMsg);
               await upsertStep(runId, node.id, branchId, 'failed', {
-                lastError: `Webhook HTTP ${res.status}`,
+                lastError: errMsg,
                 finishedAt: new Date(),
                 detailJson: detailJson({
-                  url: url.replace(/\/\/.*@/, '//***@'),
+                  url: safeUrl,
                   method,
                   httpStatus: res.status,
+                  responsePreview: responseText.slice(0, 300) || undefined,
                   branch: 'error',
                 }),
               });
-              // Side-effect only — do not fail the run
-              return 'success';
+              return 'failed';
             }
             await upsertStep(runId, node.id, branchId, 'success', {
               finishedAt: new Date(),
               detailJson: detailJson({
-                url: url.replace(/\/\/.*@/, '//***@'),
+                url: safeUrl,
                 method,
                 httpStatus: res.status,
                 templateKey: templateKey || undefined,
@@ -1367,14 +1393,16 @@ async function executeNode(
             return 'success';
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
-            logger.warn('webhook failed (ignored for run outcome)', { runId, err: msg });
+            logger.warn('webhook failed', { runId, err: msg });
             ctx.__nextHandle = 'error';
             setLastOutcome(ctx, 'error', false);
+            setRunOutcome(ctx, 'failed');
+            recordNodeFailure(ctx, node, msg);
             await upsertStep(runId, node.id, branchId, 'failed', {
               lastError: msg,
               finishedAt: new Date(),
               detailJson: detailJson({
-                url: url.replace(/\/\/.*@/, '//***@'),
+                url: safeUrl,
                 method,
                 branch: 'error',
               }),
@@ -1383,9 +1411,9 @@ async function executeNode(
               actor: 'system',
               action: 'webhook.failed',
               flowRunId: runId,
-              payload: { url: url.replace(/\/\/.*@/, '//***@'), error: msg },
+              payload: { url: safeUrl, error: msg },
             });
-            return 'success';
+            return 'failed';
           }
         }
         case 'wait_approval': {
@@ -2148,6 +2176,26 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
         }
         if (SIDE_EFFECT_NODE_TYPES.has(node.type)) {
           continue;
+        }
+        // Webhook (e similares sem aresta de erro): terminar a run como failed
+        // em vez de awaiting_user — não há acção útil de "continuar" num POST falhado.
+        if (node.type === 'webhook') {
+          const status = finalizeRunStatus(ctx);
+          runsRepo.update(runId, {
+            status,
+            finishedAt: new Date(),
+            currentNodeId: null,
+            contextJson: JSON.stringify(ctx),
+          });
+          await audit({
+            actor: 'system',
+            action: `flow_run.${status}`,
+            entity: 'flow_run',
+            entityId: runId,
+            flowRunId: runId,
+            payload: { outcome: status, failedNode: node.id, failedType: node.type },
+          });
+          return;
         }
         runsRepo.update(runId, {
           status: 'awaiting_user',

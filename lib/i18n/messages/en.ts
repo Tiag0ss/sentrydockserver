@@ -318,7 +318,7 @@ export const en = {
     if: 'Branches on a boolean field (default lastResult): true / false.',
     case: 'Branches on lastOutcome (or another enum field) with WHEN / else.',
     notify: 'Sends a notification. Side-effect; does not fail the run.',
-    webhook: 'HTTP call. Side-effect; does not fail the run.',
+    webhook: 'HTTP JSON call. Pick a template shaped for the destination (Slack uses text, Discord uses content). Failure marks the run as failed.',
     wait_approval: 'Pauses once for the whole batch. Template can list {{targetsList}} / {{skippedTargetsList}}.',
     split: 'Parallel branches: one output per container from ctx.targets. Wire each output to that container’s path; then Join.',
     join: 'Joins split branches (wait_all / continue_successes / await_user).',

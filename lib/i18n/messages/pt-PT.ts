@@ -324,7 +324,7 @@ export const ptPT: Messages = {
     split: 'Ramos paralelos: uma saída por contentor de ctx.targets. Liga cada saída ao caminho desse contentor; depois Join.',
     join: 'Espera ramos do Split. Modo wait_all / continue_successes / await_user.',
     notify: 'Cria uma notificação (template ou mensagem livre). Não afecta o sucesso/falha do run.',
-    webhook: 'HTTP com template. Não afecta o sucesso/falha do run; OK/Erro só escolhem o próximo node.',
+    webhook: 'HTTP com template JSON. Escolhe um template no formato do destino (Slack usa text, Discord usa content). Falha → run failed.',
     rollback: 'Recria com previousImage / previousDigest do contexto.',
     run_flow: 'Inicia outro flow. Com wait: success / failed / error. Runs aninhados aparecem no pai.',
     default: 'Liga as saídas à direita ao próximo node.',
