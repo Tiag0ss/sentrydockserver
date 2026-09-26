@@ -583,6 +583,7 @@ export const ptPT: Messages = {
     emptyActive: 'Nenhum run activo.',
     emptyHistory: 'Ainda não há runs concluídos.',
     openFlow: 'Abrir flow',
+    editFlow: 'Editar flow',
     openDetail: 'Abrir detalhe',
     subtitle: 'Runs activos e concluídos. Usa os ícones para abrir ou repetir um run.',
     rerun: 'Repetir',

@@ -1055,10 +1055,16 @@ async function executeNode(
               };
               ctx.previousDigest = insp.Image;
               const configImage = String(insp.Config?.Image || '');
-              if (configImage && !/^sha256:/i.test(configImage)) {
-                ctx.previousImage = configImage;
-              } else if (image && !/^sha256:/i.test(image)) {
+              // Prefer a mutable name:tag for later recreate/rollback payloads.
+              // After a digest-pinned rollback, Config.Image is `repo@sha256:…` — keep
+              // the catalog/flow image (`repo:latest`) instead of that pin.
+              if (image && !/^sha256:/i.test(image) && !/@sha256:/i.test(image)) {
                 ctx.previousImage = image;
+              } else if (configImage && !/^sha256:/i.test(configImage) && !/@sha256:/i.test(configImage)) {
+                ctx.previousImage = configImage;
+              } else if (configImage.includes('@sha256:')) {
+                const repo = configImage.replace(/@sha256:[a-f0-9]+$/i, '');
+                ctx.previousImage = image || `${repo}:latest`;
               }
             } catch (err) {
               logger.warn('could not inspect container for previous digest', {
@@ -1148,6 +1154,35 @@ async function executeNode(
           }
 
           if (composeProjectId && node.type === 'compose_up') {
+            // Snapshot running image before compose replaces it (needed for :latest rollback).
+            if (branchContainer && !ctx.previousDigest) {
+              try {
+                const insp = await agentGateway.sendCommand(agentId, 'docker.inspect', { id: branchContainer }) as {
+                  Image?: string;
+                  Config?: { Image?: string };
+                };
+                if (insp.Image) ctx.previousDigest = insp.Image;
+                if (!ctx.previousImage) {
+                  const configImage = String(insp.Config?.Image || '');
+                  if (configImage.includes('@sha256:')) {
+                    const repo = configImage.replace(/@sha256:[a-f0-9]+$/i, '');
+                    ctx.previousImage = image || `${repo}:latest`;
+                  } else if (configImage && !/^sha256:/i.test(configImage)) {
+                    ctx.previousImage = configImage;
+                  } else if (image) {
+                    ctx.previousImage = image;
+                  }
+                }
+              } catch (err) {
+                logger.warn('could not inspect container before compose_up', {
+                  err: err instanceof Error ? err.message : String(err),
+                  containerName: branchContainer,
+                });
+              }
+            }
+            if (!ctx.previousDigest && ctx.oldDigest) {
+              ctx.previousDigest = ctx.oldDigest;
+            }
             if (!agentId) throw new Error('agentId required for compose project deploy');
             const result = await deployComposeProject(
               composeProjectId,
@@ -1157,6 +1192,30 @@ async function executeNode(
             const row = result.results?.[0];
             if (row?.status === 'error') {
               throw new Error(row.error || 'compose deploy failed');
+            }
+            // Compose can report success without recreating when only :latest moved.
+            // Fail the node if this branch container is still on the previous digest.
+            const wantNew = ctx.newDigest ? String(ctx.newDigest) : '';
+            if (branchContainer && wantNew) {
+              try {
+                const after = await agentGateway.sendCommand(agentId, 'docker.inspect', { id: branchContainer }) as {
+                  Image?: string;
+                };
+                const got = String(after.Image || '');
+                const wantNorm = wantNew.toLowerCase().replace(/^sha256:/, '');
+                const gotNorm = got.toLowerCase().replace(/^sha256:/, '');
+                if (gotNorm && wantNorm && !gotNorm.startsWith(wantNorm) && !wantNorm.startsWith(gotNorm.slice(0, 12))) {
+                  throw new Error(
+                    `compose_up left ${branchContainer} on ${got.slice(0, 19)}…, expected ${wantNew.slice(0, 19)}…`,
+                  );
+                }
+              } catch (err) {
+                if (err instanceof Error && err.message.startsWith('compose_up left')) throw err;
+                logger.warn('could not verify digest after compose_up', {
+                  err: err instanceof Error ? err.message : String(err),
+                  containerName: branchContainer,
+                });
+              }
             }
             if (Boolean(node.data.advancePinOnSuccess) || Boolean(ctx.advancePinOnSuccess)) {
               const runRow = runsRepo.findById(runId);

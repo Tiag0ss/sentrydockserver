@@ -583,6 +583,7 @@ export const es: Messages = {
     emptyActive: 'Ningún run activo.',
     emptyHistory: 'Aún no hay runs finalizados.',
     openFlow: 'Abrir flow',
+    editFlow: 'Editar flow',
     openDetail: 'Abrir detalle',
     subtitle: 'Runs activos y finalizados. Usa los iconos para abrir o repetir un run.',
     rerun: 'Repetir',

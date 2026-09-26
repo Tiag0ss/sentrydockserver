@@ -583,6 +583,7 @@ export const fr: Messages = {
     emptyActive: 'Aucun run actif.',
     emptyHistory: 'Aucun run terminé pour l’instant.',
     openFlow: 'Ouvrir le flow',
+    editFlow: 'Modifier le flow',
     openDetail: 'Ouvrir le détail',
     subtitle: 'Runs actifs et terminés. Utilisez les icônes pour ouvrir ou relancer un run.',
     rerun: 'Relancer',

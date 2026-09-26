@@ -581,6 +581,7 @@ export const en = {
     emptyActive: 'No active runs.',
     emptyHistory: 'No finished runs yet.',
     openFlow: 'Open flow',
+    editFlow: 'Edit flow',
     openDetail: 'Open details',
     subtitle: 'Active and finished runs. Use the icons to open a run or start it again.',
     rerun: 'Re-run',

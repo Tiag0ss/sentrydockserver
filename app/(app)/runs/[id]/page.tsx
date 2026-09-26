@@ -9,7 +9,7 @@ import { tt } from '@/lib/i18n/translate';
 import { Modal, Button } from '@/components/ui';
 import { RunFlowChart, RunStatusLegend, type NodeStatusMap, type RunGraph } from '../_components/RunFlowChart';
 import { ActionIconButton } from '../_components/RunActionIcons';
-import { IconRefresh } from '@/components/IconActions';
+import { IconEdit, IconRefresh } from '@/components/IconActions';
 
 type StepDetail = {
   agentId?: string;
@@ -484,12 +484,15 @@ export default function RunDetailPage() {
       <header style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <h1 style={{ margin: 0 }}>{run.flow?.name || t('runs.runFallback', { id: run.id.slice(0, 8) })}</h1>
         <span style={{ color: 'var(--muted)', fontSize: 14 }} title={run.id}>{run.id.slice(0, 8)}…</span>
-        {run.flow && (
-          <Link href="/flows" style={{ color: 'var(--muted)', fontSize: 14 }}>
-            {t('runs.openFlow')}
-          </Link>
-        )}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+          {run.flowId ? (
+            <ActionIconButton
+              title={t('runs.editFlow')}
+              onClick={() => router.push(`/flows?edit=${run.flowId}`)}
+            >
+              <IconEdit />
+            </ActionIconButton>
+          ) : null}
           <ActionIconButton
             title={t('runs.rerun')}
             primary

@@ -254,6 +254,9 @@ export async function deployComposeProject(
           env,
           registryAuths,
           action: 'up',
+          // Flow updates and manual "force" deploys must recreate even when the
+          // compose file hash is unchanged (:latest digest moved / digest-pin rollback).
+          forceRecreate: Boolean(input.force),
         },
         600_000,
       ) as { services?: unknown[] };
