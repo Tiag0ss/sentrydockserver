@@ -363,6 +363,10 @@ apiRouter.delete('/compose-projects/:id', authRequired, requirePasswordOk, requi
   res.json(await composeService.deleteComposeProject(param(req), req.user!.username));
 }));
 
+apiRouter.post('/compose-projects/:id/duplicate', authRequired, requirePasswordOk, requireModify, asyncHandler(async (req, res) => {
+  res.status(201).json(await composeService.duplicateComposeProject(param(req), req.user!.username));
+}));
+
 apiRouter.post('/compose-projects/:id/deploy', authRequired, requirePasswordOk, requireModify, validateBody(deployComposeSchema), asyncHandler(async (req, res) => {
   res.json(await composeService.deployComposeProject(param(req), req.body, req.user!.username));
 }));

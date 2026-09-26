@@ -385,6 +385,12 @@ export const fr: Messages = {
     creatingFlow: 'Création du flow…',
     flowNeedsDeploy: 'Déployez sur au moins un agent avant de créer le flow.',
     flowCreated: 'Flow « {name} » créé ({count} conteneur(s) dans le check).',
+    duplicate: 'Dupliquer',
+    search: 'Rechercher des projets…',
+    searchEmpty: 'Aucun projet ne correspond à cette recherche.',
+    filterStatus: 'Filtrer par état',
+    filterAll: 'Tous les états',
+    filterNoDeploy: 'Jamais déployé',
   },
   secrets: {
     title: 'Secrets',

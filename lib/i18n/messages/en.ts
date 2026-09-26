@@ -383,6 +383,12 @@ export const en = {
     creatingFlow: 'Creating flow…',
     flowNeedsDeploy: 'Deploy to at least one agent before creating the flow.',
     flowCreated: 'Flow "{name}" created ({count} container(s) in check).',
+    duplicate: 'Duplicate',
+    search: 'Search projects…',
+    searchEmpty: 'No projects match this search.',
+    filterStatus: 'Filter by status',
+    filterAll: 'All statuses',
+    filterNoDeploy: 'Never deployed',
   },
   secrets: {
     title: 'Secrets',

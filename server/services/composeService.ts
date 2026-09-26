@@ -161,6 +161,42 @@ export async function deleteComposeProject(id: string, actor: string) {
   return { ok: true };
 }
 
+function uniqueComposeCopyName(base: string): string {
+  const root = base.replace(/\s*\(copy(?:\s+\d+)?\)\s*$/i, '').trim() || base;
+  let candidate = `${root} (copy)`;
+  if (!composeProjectsRepo.findByName(candidate)) return candidate;
+  for (let i = 2; i < 1000; i += 1) {
+    candidate = `${root} (copy ${i})`;
+    if (!composeProjectsRepo.findByName(candidate)) return candidate;
+  }
+  return `${root} (copy ${Date.now()})`;
+}
+
+/** Duplica o YAML/nome; estados de agentes não são copiados. */
+export async function duplicateComposeProject(id: string, actor: string) {
+  const existing = composeProjectsRepo.findById(id);
+  if (!existing) throw new AppError(404, 'compose project not found', 'not_found');
+  const name = uniqueComposeCopyName(existing.name);
+  const newId = uuid();
+  const now = new Date();
+  composeProjectsRepo.insert({
+    id: newId,
+    name,
+    yamlText: existing.yamlText,
+    contentHash: hashYamlOnly(existing.yamlText),
+    createdAt: now,
+    updatedAt: now,
+  });
+  await audit({
+    actor,
+    action: 'compose.duplicated',
+    entity: 'compose_project',
+    entityId: newId,
+    payload: { sourceId: id },
+  });
+  return getComposeProject(newId);
+}
+
 export async function deployComposeProject(
   id: string,
   input: { agentIds: string[]; force?: boolean },

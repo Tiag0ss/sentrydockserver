@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import {
-  PageHeader, Button, Input, Field, Panel, EmptyState, Modal, Alert,
+  PageHeader, Button, Input, Field, Panel, EmptyState, Modal, Alert, Select,
 } from '@/components/ui';
-import { IconButton, IconTrash, IconEdit, IconSave } from '@/components/IconActions';
+import { IconButton, IconTrash, IconEdit, IconSave, IconCopy } from '@/components/IconActions';
 
 type AgentRow = { id: string; name: string; online: boolean; labels?: string[] };
 
@@ -67,6 +67,8 @@ export default function ComposePage() {
   const [deployResult, setDeployResult] = useState('');
   const [flowBusyId, setFlowBusyId] = useState<string | null>(null);
   const [flowMsg, setFlowMsg] = useState('');
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
 
   async function load() {
     const [p, a] = await Promise.all([
@@ -82,6 +84,26 @@ export default function ComposePage() {
   }, [t]);
 
   const onlineAgents = useMemo(() => agents.filter((a) => a.online), [agents]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return projects.filter((p) => {
+      if (statusFilter === 'none') {
+        if (p.states.length > 0) return false;
+      } else if (statusFilter) {
+        if (!p.states.some((s) => s.status === statusFilter)) return false;
+      }
+      if (!q) return true;
+      const hay = [
+        p.name,
+        p.yamlText,
+        p.contentHash,
+        p.id,
+        ...p.states.map((s) => `${s.agentName || ''} ${s.agentId} ${s.status} ${s.lastError || ''}`),
+      ].join('\n').toLowerCase();
+      return hay.includes(q);
+    });
+  }, [projects, query, statusFilter]);
 
   function openCreate() {
     setEditingId(null);
@@ -128,6 +150,20 @@ export default function ComposePage() {
     try {
       await api(`/compose-projects/${id}`, { method: 'DELETE' });
       await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('common.error'));
+    }
+  }
+
+  async function duplicate(id: string) {
+    setError('');
+    try {
+      const copy = await api<ComposeProject>(`/compose-projects/${id}/duplicate`, {
+        method: 'POST',
+        body: '{}',
+      });
+      await load();
+      openEdit(copy);
     } catch (e) {
       setError(e instanceof Error ? e.message : t('common.error'));
     }
@@ -210,10 +246,38 @@ export default function ComposePage() {
       {error ? <Alert>{error}</Alert> : null}
       {flowMsg ? <Alert>{flowMsg}</Alert> : null}
 
+      {projects.length > 0 ? (
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t('compose.search')}
+            aria-label={t('compose.search')}
+            className="sd-input sd-input-sm"
+            style={{ maxWidth: 320 }}
+          />
+          <Select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            aria-label={t('compose.filterStatus')}
+            style={{ maxWidth: 200 }}
+          >
+            <option value="">{t('compose.filterAll')}</option>
+            <option value="synced">{t('compose.statusSynced')}</option>
+            <option value="drift">{t('compose.statusDrift')}</option>
+            <option value="pending">{t('compose.statusPending')}</option>
+            <option value="error">{t('compose.statusError')}</option>
+            <option value="none">{t('compose.filterNoDeploy')}</option>
+          </Select>
+        </div>
+      ) : null}
+
       {projects.length === 0 ? (
         <EmptyState>{t('compose.empty')}</EmptyState>
+      ) : filtered.length === 0 ? (
+        <EmptyState>{t('compose.searchEmpty')}</EmptyState>
       ) : (
-        projects.map((p) => (
+        filtered.map((p) => (
           <Panel key={p.id}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
               <div>
@@ -234,6 +298,9 @@ export default function ComposePage() {
                   {flowBusyId === p.id ? t('compose.creatingFlow') : t('compose.createUpdateFlow')}
                 </Button>
                 <IconButton label={t('common.edit')} onClick={() => openEdit(p)}><IconEdit /></IconButton>
+                <IconButton label={t('compose.duplicate')} onClick={() => { void duplicate(p.id); }}>
+                  <IconCopy />
+                </IconButton>
                 <IconButton label={t('common.delete')} onClick={() => void remove(p.id)}><IconTrash /></IconButton>
               </div>
             </div>

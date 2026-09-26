@@ -385,6 +385,12 @@ export const ptPT: Messages = {
     creatingFlow: 'A criar flow…',
     flowNeedsDeploy: 'Faz deploy para pelo menos um agente antes de criar o flow.',
     flowCreated: 'Flow «{name}» criado ({count} contentor(es) no check).',
+    duplicate: 'Duplicar',
+    search: 'Pesquisar projectos…',
+    searchEmpty: 'Nenhum projecto corresponde a esta pesquisa.',
+    filterStatus: 'Filtrar por estado',
+    filterAll: 'Todos os estados',
+    filterNoDeploy: 'Sem deploy',
   },
   secrets: {
     title: 'Secrets',
