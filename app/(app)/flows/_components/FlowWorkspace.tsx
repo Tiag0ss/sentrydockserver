@@ -27,6 +27,18 @@ import type { FlowSummary } from './FlowsList';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { useIsMobile } from '@/hooks/useIsMobile';
 
+/** Normaliza para HH:mm; rejeita valores inválidos. */
+function normalizeBlackoutTime(raw: string): string {
+  const v = raw.trim();
+  if (!v) return '';
+  const m = v.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (!m) return '';
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(min) || h > 23 || min > 59) return '';
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
+
 const defaultEdgeOptions = {
   type: 'smoothstep' as const,
   animated: false,
@@ -109,8 +121,8 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
   const [scheduleEnabled, setScheduleEnabled] = useState(Boolean(initial?.scheduleEnabled));
   const [cron, setCron] = useState(initial?.cron || '0 */6 * * *');
   const [timezone, setTimezone] = useState(initial?.timezone || 'Europe/Lisbon');
-  const [blackoutStart, setBlackoutStart] = useState(initial?.blackoutStart || '');
-  const [blackoutEnd, setBlackoutEnd] = useState(initial?.blackoutEnd || '');
+  const [blackoutStart, setBlackoutStart] = useState(normalizeBlackoutTime(initial?.blackoutStart || ''));
+  const [blackoutEnd, setBlackoutEnd] = useState(normalizeBlackoutTime(initial?.blackoutEnd || ''));
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(
     initial ? toFlowNodes(initial.graph.nodes, nodeLabel) : [],
   );
@@ -132,8 +144,8 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
     setScheduleEnabled(Boolean(initial.scheduleEnabled));
     setCron(initial.cron || '0 */6 * * *');
     setTimezone(initial.timezone || 'Europe/Lisbon');
-    setBlackoutStart(initial.blackoutStart || '');
-    setBlackoutEnd(initial.blackoutEnd || '');
+    setBlackoutStart(normalizeBlackoutTime(initial.blackoutStart || ''));
+    setBlackoutEnd(normalizeBlackoutTime(initial.blackoutEnd || ''));
     setNodes(toFlowNodes(initial.graph.nodes, nodeLabel));
     setEdges(toFlowEdges(initial.graph.edges, initial.graph.nodes, edgePortLabel));
   }, [initial, setNodes, setEdges, nodeLabel, edgePortLabel]);
@@ -484,19 +496,25 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
             <label>
               {t('flows.blackoutStart')}
               <input
-                style={{ ...inputStyle, width: 80, marginTop: 2 }}
+                type="time"
+                step={60}
+                style={{ ...inputStyle, width: 120, marginTop: 2 }}
                 value={blackoutStart}
-                onChange={(e) => setBlackoutStart(e.target.value)}
-                placeholder="HH:mm"
+                onChange={(e) => setBlackoutStart(normalizeBlackoutTime(e.target.value))}
+                onBlur={(e) => setBlackoutStart(normalizeBlackoutTime(e.target.value))}
+                title="HH:mm"
               />
             </label>
             <label>
               {t('flows.blackoutEnd')}
               <input
-                style={{ ...inputStyle, width: 80, marginTop: 2 }}
+                type="time"
+                step={60}
+                style={{ ...inputStyle, width: 120, marginTop: 2 }}
                 value={blackoutEnd}
-                onChange={(e) => setBlackoutEnd(e.target.value)}
-                placeholder="HH:mm"
+                onChange={(e) => setBlackoutEnd(normalizeBlackoutTime(e.target.value))}
+                onBlur={(e) => setBlackoutEnd(normalizeBlackoutTime(e.target.value))}
+                title="HH:mm"
               />
             </label>
           </>

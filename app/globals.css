@@ -695,6 +695,61 @@ button, input, select, textarea { font: inherit; }
   border: 1px solid color-mix(in srgb, var(--sd-accent) 28%, var(--sd-border));
   word-break: break-word;
 }
+.sd-chip-muted {
+  color: var(--sd-muted);
+  background: color-mix(in srgb, var(--sd-muted) 10%, var(--sd-surface));
+  border-color: var(--sd-border);
+  font-weight: 500;
+}
+.sd-secret-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sd-secret-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--sd-border);
+  background: var(--sd-panel);
+}
+.sd-secret-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.sd-secret-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  min-width: 10rem;
+  flex: 0 1 auto;
+}
+.sd-secret-row .sd-chip-row {
+  flex: 1 1 auto;
+  justify-content: flex-end;
+}
+.sd-secret-row .sd-entity-actions {
+  margin-left: auto;
+}
+.sd-secrets-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.sd-secrets-section {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--sd-border);
+}
 .sd-agent-labels {
   margin-top: 10px;
 }
@@ -906,10 +961,25 @@ button, input, select, textarea { font: inherit; }
 .sd-nav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 12px;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  padding-bottom: 8px;
+}
+.sd-nav-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sd-nav-section-label {
+  padding: 8px 12px 4px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--sd-sidebar-muted) 85%, transparent);
+  user-select: none;
 }
 .sd-nav-link {
   padding: 10px 12px;

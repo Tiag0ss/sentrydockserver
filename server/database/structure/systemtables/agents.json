@@ -49,8 +49,7 @@
       "FieldName": "last_seen_at",
       "DataType": "integer",
       "NotNullable": false
-    },
-    {
+    },    {
       "FieldName": "meta_json",
       "DataType": "text",
       "NotNullable": false

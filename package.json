@@ -7,7 +7,8 @@
     "build": "next build && tsc -p server/tsconfig.json",
     "start": "NODE_ENV=production node dist/server/index.js",
     "lint": "eslint .",
-    "typecheck": "tsc -p server/tsconfig.json --noEmit && tsc --noEmit"
+    "typecheck": "tsc -p server/tsconfig.json --noEmit && tsc --noEmit",
+    "reset-db-keep-agents": "tsx server/scripts/reset-db-keep-agents.ts"
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.14.0",

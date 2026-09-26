@@ -12,6 +12,9 @@ export const secretsRepo = {
       updatedAt: secrets.updatedAt,
     }).from(secrets).all();
   },
+  list() {
+    return db.select().from(secrets).all();
+  },
   findById(id: string) {
     return db.select().from(secrets).where(eq(secrets.id, id)).get();
   },

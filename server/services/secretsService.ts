@@ -78,3 +78,20 @@ export function getSecretPlain(id: string): string | null {
   if (!row) return null;
   return decryptSecret(row.ciphertext);
 }
+
+/** String secrets usable as Compose env (name = key). Agent env overrides these. */
+export function getGlobalComposeEnv(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const row of secretsRepo.list()) {
+    if (row.type === 'registry_credentials') continue;
+    try {
+      const plain = decryptSecret(row.ciphertext);
+      // JSON objects (registry) skipped; plain string tokens only
+      if (plain.trim().startsWith('{')) continue;
+      out[row.name] = plain;
+    } catch {
+      /* skip broken */
+    }
+  }
+  return out;
+}

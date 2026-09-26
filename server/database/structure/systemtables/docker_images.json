@@ -1,0 +1,64 @@
+{
+  "TableName": "docker_images",
+  "PrimaryKeyFields": "id",
+  "Fields": [
+    {
+      "FieldName": "id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "key",
+      "DataType": "varchar(64)",
+      "NotNullable": true,
+      "Unique": true
+    },
+    {
+      "FieldName": "name",
+      "DataType": "varchar(255)",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "repository",
+      "DataType": "varchar(512)",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "target_mode",
+      "DataType": "varchar(32)",
+      "NotNullable": true,
+      "DefaultValue": "follow_tag"
+    },
+    {
+      "FieldName": "target_tag",
+      "DataType": "varchar(255)",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "target_range",
+      "DataType": "varchar(64)",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "allow_prerelease",
+      "DataType": "integer",
+      "NotNullable": true,
+      "DefaultValue": "0"
+    },
+    {
+      "FieldName": "secret_id",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "created_at",
+      "DataType": "integer",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "updated_at",
+      "DataType": "integer",
+      "NotNullable": true
+    }
+  ]
+}

@@ -5,10 +5,15 @@ import { templatesRepo } from '../repositories/domainRepo';
 import { agentsRepo } from '../repositories/agentsRepo';
 import { agentGateway } from './agentGateway';
 import { audit } from './audit';
-import { getSecretPlain } from './secretsService';
 import { createNotification } from './notificationsService';
 import { migrateFlowGraph } from './flowGraphMigrate';
 import { humanizeDisplayText, shortDigest } from '../utils/displayHumanize';
+import {
+  resolveDesiredImageRef,
+  splitImageRef,
+  targetInputFromNodeAndCtx,
+} from './imageTarget';
+import { getRegistryAuth, resolveCatalogImageRef } from './imagesService';
 import logger from '../utils/logger';
 
 export type FlowNode = {
@@ -355,7 +360,13 @@ export async function resumeInterruptedRuns() {
   }
 }
 
-export async function userContinueRun(runId: string, opts: { continue: boolean; branchIds?: string[] }) {
+export async function userContinueRun(runId: string, opts: {
+  continue: boolean;
+  branchIds?: string[];
+  targetTag?: string;
+  targetRange?: string;
+  targetMode?: string;
+}) {
   const run = runsRepo.findById(runId);
   if (!run) throw new Error('Run not found');
   if (run.status !== 'awaiting_user' && run.status !== 'waiting_approval') {
@@ -363,6 +374,15 @@ export async function userContinueRun(runId: string, opts: { continue: boolean; 
   }
   const ctx = JSON.parse(run.contextJson || '{}') as RunContext;
   if (opts.branchIds) ctx.selectedBranchIds = opts.branchIds;
+  if (opts.targetTag != null && String(opts.targetTag).trim()) {
+    ctx.targetTag = String(opts.targetTag).trim();
+  }
+  if (opts.targetRange != null && String(opts.targetRange).trim()) {
+    ctx.targetRange = String(opts.targetRange).trim();
+  }
+  if (opts.targetMode != null && String(opts.targetMode).trim()) {
+    ctx.targetMode = String(opts.targetMode).trim();
+  }
 
   if (run.status === 'waiting_approval') {
     const decision = opts.continue ? 'approved' : 'rejected';
@@ -423,16 +443,76 @@ export async function userContinueRun(runId: string, opts: { continue: boolean; 
   void advanceRun(runId, { afterUserContinue: true });
 }
 
-async function getRegistryAuth(secretId?: string | null) {
-  if (!secretId) return undefined;
-  const plainStr = getSecretPlain(secretId);
-  if (!plainStr) return undefined;
-  try {
-    return JSON.parse(plainStr) as { username: string; password: string; serveraddress?: string };
-  } catch (err) {
-    logger.warn('invalid registry secret JSON', { secretId });
-    return undefined;
+async function advancePinOnFlow(
+  flowId: string,
+  recreateNode: FlowNode,
+  appliedImage: string,
+  ctx: RunContext,
+) {
+  const flow = flowsRepo.findById(flowId);
+  if (!flow) return;
+  const graph = parseGraph(flow.graphJson);
+  const { tag, digest } = splitImageRef(appliedImage);
+  const pin = tag || digest || String(ctx.currentTag || ctx.targetTag || '');
+  if (!pin) return;
+
+  let changed = false;
+  for (const n of graph.nodes) {
+    if (n.type !== 'check_image_update') continue;
+    const sameContainer =
+      String(n.data.containerName || '') === String(recreateNode.data.containerName || ctx.containerName || '')
+      || !n.data.containerName;
+    if (!sameContainer && String(n.data.image || '').split(':')[0] !== splitImageRef(appliedImage).repo) {
+      continue;
+    }
+    n.data = {
+      ...n.data,
+      targetMode: 'pin_tag',
+      targetTag: pin,
+      image: appliedImage.includes(':') || appliedImage.includes('@')
+        ? appliedImage
+        : String(n.data.image || appliedImage),
+    };
+    changed = true;
   }
+  // Also update the recreate node's image if present
+  const rec = graph.nodes.find((n) => n.id === recreateNode.id);
+  if (rec) {
+    rec.data = { ...rec.data, image: appliedImage };
+    changed = true;
+  }
+  if (!changed) return;
+  flowsRepo.update(flowId, {
+    graphJson: JSON.stringify(graph),
+    updatedAt: new Date(),
+  });
+  await audit({
+    actor: 'system',
+    action: 'flow.target_advanced',
+    entity: 'flow',
+    entityId: flowId,
+    payload: { pin, image: appliedImage, nodeId: recreateNode.id },
+  });
+}
+
+async function resolveNodeImage(
+  nodeData: Record<string, unknown>,
+  ctx: RunContext,
+  preferAgentId?: string,
+): Promise<{ image: string; secretId: string | null; fromCatalog: boolean }> {
+  const imageId = String(nodeData.imageId || ctx.imageId || '').trim();
+  if (imageId) {
+    const resolved = await resolveCatalogImageRef(imageId, { preferAgentId });
+    ctx.image = resolved.imageRef;
+    ctx.imageId = resolved.id;
+    if (resolved.secretId) ctx.secretId = resolved.secretId;
+    return { image: resolved.imageRef, secretId: resolved.secretId, fromCatalog: true };
+  }
+  return {
+    image: String(nodeData.image || ctx.image || ''),
+    secretId: String(nodeData.secretId || ctx.secretId || '') || null,
+    fromCatalog: false,
+  };
 }
 
 async function executeNode(
@@ -484,10 +564,61 @@ async function executeNode(
 
       switch (node.type) {
         case 'check_image_update': {
-          const image = String(node.data.image || ctx.image || '');
           const containerName = String(node.data.containerName || ctx.containerName || '');
-          const auth = await getRegistryAuth(String(node.data.secretId || ctx.secretId || '') || null);
           const agents = resolveScopedAgents(node);
+          const catalog = await resolveNodeImage(node.data, ctx, agents[0]?.id);
+          const auth = getRegistryAuth(catalog.secretId);
+          const targetInput = catalog.fromCatalog
+            ? {
+              image: catalog.image,
+              targetMode: 'follow_tag' as const,
+            }
+            : targetInputFromNodeAndCtx(node.data, ctx);
+          const listTagsVia = async (agentId: string) => {
+            const { repo } = splitImageRef(targetInput.image);
+            if (!repo) return [] as string[];
+            const res = await agentGateway.sendCommand(
+              agentId,
+              'image.listTags',
+              { imageRepo: repo, auth },
+              120_000,
+            ) as { tags?: string[] };
+            return res.tags || [];
+          };
+
+          let resolved;
+          try {
+            if (catalog.fromCatalog) {
+              resolved = {
+                mode: 'follow_tag' as const,
+                imageRef: catalog.image,
+                repo: splitImageRef(catalog.image).repo,
+                selectedTag: splitImageRef(catalog.image).tag,
+                targetTag: null,
+                targetRange: null,
+              };
+            } else {
+              const tagAgent = agents[0]?.id;
+              resolved = await resolveDesiredImageRef(
+                targetInput,
+                targetInput.targetMode === 'semver_range' && tagAgent
+                  ? () => listTagsVia(tagAgent)
+                  : undefined,
+              );
+            }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            setLastOutcome(ctx, 'error', false);
+            recordNodeFailure(ctx, node, msg);
+            await upsertStep(runId, node.id, branchId, 'failed', {
+              finishedAt: new Date(),
+              lastError: msg,
+              detailJson: detailJson({ error: msg }),
+            });
+            return 'failed';
+          }
+
+          const image = resolved.imageRef;
           const targets: Array<{
             agentId: string;
             containerName: string;
@@ -544,6 +675,10 @@ async function executeNode(
             containerName,
             agentId: first?.agentId || agents[0]?.id || ctx.agentId,
             secretId: node.data.secretId || ctx.secretId,
+            targetMode: resolved.mode,
+            targetTag: resolved.targetTag || ctx.targetTag || node.data.targetTag || '',
+            targetRange: resolved.targetRange || ctx.targetRange || node.data.targetRange || '',
+            currentTag: resolved.selectedTag || '',
           });
           if (updateAvailable) {
             setLastOutcome(ctx, 'update', true);
@@ -558,6 +693,8 @@ async function executeNode(
             detailJson: detailJson({
               containerName,
               image,
+              targetMode: resolved.mode,
+              selectedTag: resolved.selectedTag,
               updateAvailable,
               targetsCount: targets.length,
               agentsChecked: agents.length,
@@ -578,8 +715,39 @@ async function executeNode(
         }
         case 'pull_image': {
           const agentId = String(node.data.agentId || ctx.agentId || '');
-          const image = String(node.data.image || ctx.image || '');
-          const auth = await getRegistryAuth(String(node.data.secretId || ctx.secretId || '') || null);
+          const catalog = await resolveNodeImage(node.data, ctx, agentId);
+          const targetInput = catalog.fromCatalog
+            ? { image: catalog.image, targetMode: 'follow_tag' as const }
+            : targetInputFromNodeAndCtx(node.data, ctx);
+          let image = catalog.fromCatalog ? catalog.image : String(ctx.image || node.data.image || '');
+          try {
+            if (!catalog.fromCatalog && (targetInput.targetMode === 'semver_range' || targetInput.targetMode === 'pin_tag')) {
+              const resolved = await resolveDesiredImageRef(
+                targetInput,
+                targetInput.targetMode === 'semver_range'
+                  ? async () => {
+                    const { repo } = splitImageRef(targetInput.image);
+                    const auth = getRegistryAuth(catalog.secretId);
+                    const res = await agentGateway.sendCommand(
+                      agentId,
+                      'image.listTags',
+                      { imageRepo: repo, auth },
+                      120_000,
+                    ) as { tags?: string[] };
+                    return res.tags || [];
+                  }
+                  : undefined,
+              );
+              image = resolved.imageRef;
+              ctx.image = image;
+              ctx.currentTag = resolved.selectedTag || '';
+            }
+          } catch (err) {
+            logger.warn('pull resolve target failed, using ctx.image', {
+              err: err instanceof Error ? err.message : String(err),
+            });
+          }
+          const auth = getRegistryAuth(catalog.secretId);
           // save previous image id (for digest compare) + name:tag (for recreate/rollback)
           if (ctx.containerName) {
             try {
@@ -628,6 +796,10 @@ async function executeNode(
           const image = String(node.data.image || ctx.image || '');
           const desiredDigest = ctx.newDigest ? String(ctx.newDigest) : undefined;
           await agentGateway.sendCommand(agentId, 'docker.recreate', { id, image, desiredDigest });
+          if (Boolean(node.data.advancePinOnSuccess) || Boolean(ctx.advancePinOnSuccess)) {
+            const runRow = runsRepo.findById(runId);
+            if (runRow) await advancePinOnFlow(runRow.flowId, node, image, ctx);
+          }
           await upsertStep(runId, node.id, branchId, 'success', {
             finishedAt: new Date(),
             detailJson: detailJson({
@@ -657,9 +829,11 @@ async function executeNode(
               'projectPath is required for Compose nodes. For a standalone container (e.g. redis), use Recreate instead of Compose up.',
             );
           }
+          const image = ctx.image ? String(ctx.image) : undefined;
           await agentGateway.sendCommand(agentId, 'docker.compose', {
             action: node.type === 'compose_up' ? 'up' : 'down',
             projectPath,
+            ...(node.type === 'compose_up' && image ? { image } : {}),
           });
           await upsertStep(runId, node.id, branchId, 'success', {
             finishedAt: new Date(),
@@ -667,6 +841,7 @@ async function executeNode(
               agentId,
               projectPath,
               action: node.type === 'compose_up' ? 'up' : 'down',
+              image,
             }),
           });
           await audit({

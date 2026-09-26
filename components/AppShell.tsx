@@ -10,16 +10,41 @@ import { HeaderStats } from '@/components/HeaderStats';
 import { UserMenu } from '@/components/UserMenu';
 import { InstallAppPrompt } from '@/components/InstallAppPrompt';
 
-const NAV_KEYS = [
-  { href: '/', key: 'nav.dashboard' },
-  { href: '/flows', key: 'nav.flows' },
-  { href: '/runs', key: 'nav.runs' },
-  { href: '/agents', key: 'nav.agents' },
-  { href: '/secrets', key: 'nav.secrets' },
-  { href: '/webhooks', key: 'nav.webhooks' },
-  { href: '/templates', key: 'nav.templates' },
-  { href: '/logs', key: 'nav.logs' },
-] as const;
+const NAV_SECTIONS: Array<{
+  labelKey?: string;
+  items: Array<{ href: string; key: string }>;
+}> = [
+  {
+    items: [{ href: '/', key: 'nav.dashboard' }],
+  },
+  {
+    labelKey: 'nav.sectionFleet',
+    items: [
+      { href: '/agents', key: 'nav.agents' },
+      { href: '/images', key: 'nav.images' },
+      { href: '/compose', key: 'nav.compose' },
+      { href: '/secrets', key: 'nav.secrets' },
+    ],
+  },
+  {
+    labelKey: 'nav.sectionAutomation',
+    items: [
+      { href: '/flows', key: 'nav.flows' },
+      { href: '/runs', key: 'nav.runs' },
+    ],
+  },
+  {
+    labelKey: 'nav.sectionIntegrations',
+    items: [
+      { href: '/webhooks', key: 'nav.webhooks' },
+      { href: '/templates', key: 'nav.templates' },
+    ],
+  },
+  {
+    labelKey: 'nav.sectionAudit',
+    items: [{ href: '/logs', key: 'nav.logs' }],
+  },
+];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -80,20 +105,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           Sentry<span>Dock</span>
         </div>
         <nav className="sd-nav">
-          {NAV_KEYS.map((n) => {
-            const active = pathname === n.href || (n.href !== '/' && pathname.startsWith(n.href));
-            return (
-              <Link
-                key={n.href}
-                href={n.href}
-                className="sd-nav-link"
-                data-active={active}
-                onClick={() => setNavOpen(false)}
-              >
-                {t(n.key)}
-              </Link>
-            );
-          })}
+          {NAV_SECTIONS.map((section, si) => (
+            <div key={section.labelKey || `sec-${si}`} className="sd-nav-section">
+              {section.labelKey ? (
+                <div className="sd-nav-section-label">{t(section.labelKey)}</div>
+              ) : null}
+              {section.items.map((n) => {
+                const active = pathname === n.href || (n.href !== '/' && pathname.startsWith(n.href));
+                return (
+                  <Link
+                    key={n.href}
+                    href={n.href}
+                    className="sd-nav-link"
+                    data-active={active}
+                    onClick={() => setNavOpen(false)}
+                  >
+                    {t(n.key)}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
       </aside>
 

@@ -1,0 +1,64 @@
+{
+  "TableName": "compose_agent_states",
+  "PrimaryKeyFields": "id",
+  "Fields": [
+    {
+      "FieldName": "id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "compose_project_id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "agent_id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "desired_hash",
+      "DataType": "varchar(64)",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "applied_hash",
+      "DataType": "varchar(64)",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "status",
+      "DataType": "varchar(32)",
+      "NotNullable": true,
+      "DefaultValue": "absent"
+    },
+    {
+      "FieldName": "last_deployed_at",
+      "DataType": "integer",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "last_checked_at",
+      "DataType": "integer",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "last_error",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "services_json",
+      "DataType": "text",
+      "NotNullable": false
+    }
+  ],
+  "Indexes": [
+    {
+      "Name": "compose_agent_states_project_agent",
+      "Columns": ["compose_project_id", "agent_id"],
+      "Unique": true
+    }
+  ]
+}

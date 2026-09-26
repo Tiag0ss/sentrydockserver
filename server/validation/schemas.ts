@@ -1,5 +1,15 @@
 import { z } from 'zod';
 
+/** HH:mm ou vazio/null (intervalo de blackout). */
+export const blackoutTimeSchema = z
+  .union([
+    z.null(),
+    z.literal(''),
+    z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'expected HH:mm'),
+  ])
+  .optional()
+  .transform((v) => (v == null || v === '' ? null : v));
+
 export const loginSchema = z.object({
   username: z.string().min(1),
   password: z.string().min(1),
@@ -46,8 +56,8 @@ export const createFlowSchema = z.object({
   scheduleEnabled: z.boolean().optional(),
   cron: z.string().nullable().optional(),
   timezone: z.string().nullable().optional(),
-  blackoutStart: z.string().nullable().optional(),
-  blackoutEnd: z.string().nullable().optional(),
+  blackoutStart: blackoutTimeSchema,
+  blackoutEnd: blackoutTimeSchema,
 });
 
 export const updateFlowSchema = z.object({
@@ -57,18 +67,13 @@ export const updateFlowSchema = z.object({
   scheduleEnabled: z.boolean().optional(),
   cron: z.string().nullable().optional(),
   timezone: z.string().nullable().optional(),
-  blackoutStart: z.string().nullable().optional(),
-  blackoutEnd: z.string().nullable().optional(),
+  blackoutStart: blackoutTimeSchema,
+  blackoutEnd: blackoutTimeSchema,
 });
 
 export const runFlowSchema = z.object({
   context: z.record(z.unknown()).optional(),
   dryRun: z.boolean().optional(),
-});
-
-export const continueRunSchema = z.object({
-  continue: z.boolean(),
-  branchIds: z.array(z.string()).optional(),
 });
 
 export const rerunRunSchema = z.object({
@@ -89,8 +94,8 @@ export const createPolicySchema = z.object({
   cron: z.string().optional(),
   timezone: z.string().optional(),
   mode: z.enum(['auto', 'notify']).optional(),
-  blackoutStart: z.string().nullable().optional(),
-  blackoutEnd: z.string().nullable().optional(),
+  blackoutStart: blackoutTimeSchema,
+  blackoutEnd: blackoutTimeSchema,
   enabled: z.boolean().optional(),
 });
 
@@ -103,8 +108,8 @@ export const updatePolicySchema = z.object({
   cron: z.string().optional(),
   timezone: z.string().optional(),
   mode: z.enum(['auto', 'notify']).optional(),
-  blackoutStart: z.string().nullable().optional(),
-  blackoutEnd: z.string().nullable().optional(),
+  blackoutStart: blackoutTimeSchema,
+  blackoutEnd: blackoutTimeSchema,
   enabled: z.boolean().optional(),
 });
 
@@ -122,6 +127,17 @@ export const updateTemplateSchema = z.object({
 
 export const updateAgentSchema = z.object({
   labels: z.array(z.string()).optional(),
+  env: z.record(z.string()).optional(),
+  envUpsert: z.record(z.string()).optional(),
+  envDelete: z.array(z.string()).optional(),
+});
+
+export const continueRunSchema = z.object({
+  continue: z.boolean(),
+  branchIds: z.array(z.string()).optional(),
+  targetTag: z.string().optional(),
+  targetRange: z.string().optional(),
+  targetMode: z.string().optional(),
 });
 
 export const importBundleSchema = z.object({
@@ -150,4 +166,45 @@ export const updateWebhookTriggerSchema = z.object({
 
 export const updateSettingSchema = z.object({
   value: z.string(),
+});
+
+export const createComposeProjectSchema = z.object({
+  name: z.string().min(1),
+  yamlText: z.string().min(1),
+});
+
+export const updateComposeProjectSchema = z.object({
+  name: z.string().min(1).optional(),
+  yamlText: z.string().min(1).optional(),
+});
+
+export const deployComposeSchema = z.object({
+  agentIds: z.array(z.string()).min(1),
+  force: z.boolean().optional(),
+});
+
+export const checkComposeSchema = z.object({
+  agentIds: z.array(z.string()).optional(),
+});
+
+export const createDockerImageSchema = z.object({
+  key: z.string().min(1),
+  name: z.string().min(1),
+  repository: z.string().min(1),
+  targetMode: z.enum(['follow_tag', 'pin_tag', 'semver_range']).optional(),
+  targetTag: z.string().nullable().optional(),
+  targetRange: z.string().nullable().optional(),
+  allowPrerelease: z.boolean().optional(),
+  secretId: z.string().nullable().optional(),
+});
+
+export const updateDockerImageSchema = z.object({
+  key: z.string().min(1).optional(),
+  name: z.string().min(1).optional(),
+  repository: z.string().min(1).optional(),
+  targetMode: z.enum(['follow_tag', 'pin_tag', 'semver_range']).optional(),
+  targetTag: z.string().nullable().optional(),
+  targetRange: z.string().nullable().optional(),
+  allowPrerelease: z.boolean().optional(),
+  secretId: z.string().nullable().optional(),
 });

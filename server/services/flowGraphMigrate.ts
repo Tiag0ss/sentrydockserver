@@ -95,7 +95,7 @@ export function migrateFlowGraph(graph: unknown): FlowGraph {
         field: 'lastOutcome',
         cases,
         label: 'CASE',
-      },
+      } as never,
     });
 
     // Remover edges antigas do action; ligar action→case; case→targets

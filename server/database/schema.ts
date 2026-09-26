@@ -27,7 +27,6 @@ export const agents = sqliteTable('agents', {
   metaJson: text('meta_json'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 });
-
 export const secrets = sqliteTable('secrets', {
   id: text('id').primaryKey(),
   name: text('name').notNull().unique(),
@@ -175,4 +174,40 @@ export const notifications = sqliteTable('notifications', {
   image: text('image'),
   readAt: integer('read_at', { mode: 'timestamp_ms' }),
   payloadJson: text('payload_json'),
+});
+
+export const composeProjects = sqliteTable('compose_projects', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull().unique(),
+  yamlText: text('yaml_text').notNull(),
+  contentHash: text('content_hash').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+});
+
+export const composeAgentStates = sqliteTable('compose_agent_states', {
+  id: text('id').primaryKey(),
+  composeProjectId: text('compose_project_id').notNull(),
+  agentId: text('agent_id').notNull(),
+  desiredHash: text('desired_hash'),
+  appliedHash: text('applied_hash'),
+  status: text('status').notNull().default('absent'), // absent | pending | synced | drift | error
+  lastDeployedAt: integer('last_deployed_at', { mode: 'timestamp_ms' }),
+  lastCheckedAt: integer('last_checked_at', { mode: 'timestamp_ms' }),
+  lastError: text('last_error'),
+  servicesJson: text('services_json'),
+});
+
+export const dockerImages = sqliteTable('docker_images', {
+  id: text('id').primaryKey(),
+  key: text('key').notNull().unique(),
+  name: text('name').notNull(),
+  repository: text('repository').notNull(),
+  targetMode: text('target_mode').notNull().default('follow_tag'),
+  targetTag: text('target_tag'),
+  targetRange: text('target_range'),
+  allowPrerelease: integer('allow_prerelease', { mode: 'boolean' }).notNull().default(false),
+  secretId: text('secret_id'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 });

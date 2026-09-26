@@ -24,6 +24,14 @@ Dados SQLite em volume `sentrydock-data` (`DATA_DIR=/data`).
 
 Esquema em JSON (`server/database/structure/systemtables/`). No arranque o `schemaBuilder` cria tabelas e adiciona colunas em falta (estilo Myelin, só SQLite). Não uses ficheiros de migration SQL.
 
+Para aplicar remoções de colunas/tabelas (o builder não apaga) e começar de fresco **sem perder agentes instalados**:
+
+```bash
+pnpm reset-db-keep-agents
+```
+
+Isto faz drop de todas as tabelas, reconstrói o schema, faz seed (admin/templates/settings) e restaura as linhas de `agents` (tokens intactos). Flows, secrets, compose, etc. são apagados de propósito.
+
 ## TLS
 
 Em produção termina TLS num reverse proxy (Caddy/Traefik/Nginx) para `:3000` e, se usares gRPC, configura TLS no proxy ou `GRPC` com certificados. Os agentes devem usar `https://` / endpoint seguro.

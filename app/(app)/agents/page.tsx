@@ -5,9 +5,9 @@ import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { tt } from '@/lib/i18n/translate';
 import {
-  PageHeader, Button, Input, Select, Field, Alert, EmptyState, Panel, Modal,
+  PageHeader, Button, Input, Select, Field, Alert, EmptyState, Panel, Modal, Tabs,
 } from '@/components/ui';
-import { IconButton, IconTrash, IconSave, IconEdit } from '@/components/IconActions';
+import { IconButton, IconTrash, IconEdit } from '@/components/IconActions';
 
 type Agent = {
   id: string;
@@ -19,6 +19,7 @@ type Agent = {
   agentVersion?: string | null;
   token?: string;
   labels?: string[];
+  envKeys?: string[];
   meta?: {
     containers?: number;
     danglingImages?: number;
@@ -26,6 +27,9 @@ type Agent = {
     diskTotalBytes?: number;
   } | null;
 };
+
+type EditTab = 'labels' | 'env';
+type EnvFormMode = 'create' | 'edit' | null;
 
 function parseLabels(raw: string): string[] {
   return raw
@@ -41,12 +45,24 @@ export default function AgentsPage() {
   const [name, setName] = useState('');
   const [transport, setTransport] = useState('ws');
   const [createdToken, setCreatedToken] = useState('');
-  const [editingLabels, setEditingLabels] = useState<Record<string, boolean>>({});
-  const [labelDraft, setLabelDraft] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [savingLabelsId, setSavingLabelsId] = useState<string | null>(null);
+
+  const [editAgent, setEditAgent] = useState<Agent | null>(null);
+  const [editTab, setEditTab] = useState<EditTab>('labels');
+  const [editLabels, setEditLabels] = useState('');
+  const [initialEnvKeys, setInitialEnvKeys] = useState<string[]>([]);
+  const [draftEnvKeys, setDraftEnvKeys] = useState<string[]>([]);
+  const [envUpsert, setEnvUpsert] = useState<Record<string, string>>({});
+  const [envDelete, setEnvDelete] = useState<string[]>([]);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
+
+  const [envMode, setEnvMode] = useState<EnvFormMode>(null);
+  const [envName, setEnvName] = useState('');
+  const [envValue, setEnvValue] = useState('');
+  const [envFormError, setEnvFormError] = useState('');
 
   async function load() {
     const rows = await api<Agent[]>('/agents');
@@ -78,27 +94,108 @@ export default function AgentsPage() {
     }
   }
 
-  function startEditLabels(a: Agent) {
-    setLabelDraft((s) => ({ ...s, [a.id]: (a.labels || []).join(', ') }));
-    setEditingLabels((s) => ({ ...s, [a.id]: true }));
+  function openEdit(a: Agent) {
+    const keys = [...(a.envKeys || [])].sort();
+    setEditAgent(a);
+    setEditTab('labels');
+    setEditLabels((a.labels || []).join(', '));
+    setInitialEnvKeys(keys);
+    setDraftEnvKeys(keys);
+    setEnvUpsert({});
+    setEnvDelete([]);
+    setEditError('');
+    setEnvMode(null);
+    setEnvName('');
+    setEnvValue('');
+    setEnvFormError('');
   }
 
-  function cancelEditLabels(id: string) {
-    setEditingLabels((s) => ({ ...s, [id]: false }));
+  function closeEdit() {
+    setEditAgent(null);
+    setEnvMode(null);
   }
 
-  async function saveLabels(id: string) {
-    setSavingLabelsId(id);
+  async function saveAll() {
+    if (!editAgent) return;
+    setEditSaving(true);
+    setEditError('');
     try {
-      const labels = parseLabels(labelDraft[id] || '');
-      await api(`/agents/${id}`, { method: 'PATCH', body: JSON.stringify({ labels }) });
-      setEditingLabels((s) => ({ ...s, [id]: false }));
+      const labels = parseLabels(editLabels);
+      const body: {
+        labels: string[];
+        envUpsert?: Record<string, string>;
+        envDelete?: string[];
+      } = { labels };
+      if (Object.keys(envUpsert).length) body.envUpsert = envUpsert;
+      if (envDelete.length) body.envDelete = envDelete;
+      await api(`/agents/${editAgent.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+      closeEdit();
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('common.error'));
+      setEditError(e instanceof Error ? e.message : t('common.error'));
     } finally {
-      setSavingLabelsId(null);
+      setEditSaving(false);
     }
+  }
+
+  function openEnvCreate() {
+    setEnvMode('create');
+    setEnvName('');
+    setEnvValue('');
+    setEnvFormError('');
+  }
+
+  function openEnvEdit(key: string) {
+    setEnvMode('edit');
+    setEnvName(key);
+    setEnvValue(envUpsert[key] || '');
+    setEnvFormError('');
+  }
+
+  function applyEnvDraft() {
+    const key = envName.trim();
+    if (!key) {
+      setEnvFormError(t('agents.envNameRequired'));
+      return;
+    }
+    if (envMode === 'create') {
+      if (!envValue.trim()) {
+        setEnvFormError(t('agents.envValueRequired'));
+        return;
+      }
+      if (draftEnvKeys.includes(key) && !envDelete.includes(key)) {
+        setEnvFormError(t('agents.envExists'));
+        return;
+      }
+      setDraftEnvKeys((keys) => [...keys.filter((k) => k !== key), key].sort());
+      setEnvUpsert((m) => ({ ...m, [key]: envValue }));
+      setEnvDelete((d) => d.filter((k) => k !== key));
+      setEnvMode(null);
+      return;
+    }
+    // edit
+    if (envValue.trim()) {
+      setEnvUpsert((m) => ({ ...m, [key]: envValue }));
+    }
+    // blank = keep existing server value (or previous draft upsert)
+    setEnvMode(null);
+  }
+
+  function deleteEnvDraft(key: string) {
+    if (!window.confirm(t('agents.envDeleteConfirm', { name: key }))) return;
+    setDraftEnvKeys((keys) => keys.filter((k) => k !== key));
+    setEnvUpsert((m) => {
+      const next = { ...m };
+      delete next[key];
+      return next;
+    });
+    if (initialEnvKeys.includes(key)) {
+      setEnvDelete((d) => (d.includes(key) ? d : [...d, key]));
+    }
+    if (envMode === 'edit' && envName === key) setEnvMode(null);
   }
 
   return (
@@ -127,9 +224,11 @@ export default function AgentsPage() {
               a.meta?.diskUsedBytes != null
                 ? `disk ${(a.meta.diskUsedBytes / (1024 ** 3)).toFixed(1)} GiB`
                 : null,
+              (a.envKeys?.length)
+                ? `${a.envKeys.length} ${t('agents.envCount')}`
+                : null,
             ].filter(Boolean);
             const labels = a.labels || [];
-            const isEditing = Boolean(editingLabels[a.id]);
             return (
               <Panel key={a.id} className="sd-entity-card">
                 <div className="sd-entity-item">
@@ -144,67 +243,20 @@ export default function AgentsPage() {
                       </span>
                     </div>
                     <div className="sd-entity-meta">{metaBits.join(' · ')}</div>
-                    <div className="sd-agent-labels">
-                      {isEditing ? (
-                        <div className="sd-agent-labels-edit">
-                          <Field label={t('agents.labels')}>
-                            <Input
-                              className="sd-input sd-input-sm"
-                              placeholder={t('agents.labelsPlaceholder')}
-                              value={labelDraft[a.id] || ''}
-                              autoFocus
-                              onChange={(e) => setLabelDraft((s) => ({ ...s, [a.id]: e.target.value }))}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  void saveLabels(a.id);
-                                }
-                                if (e.key === 'Escape') cancelEditLabels(a.id);
-                              }}
-                            />
-                          </Field>
-                          <div className="sd-agent-labels-edit-actions">
-                            <IconButton
-                              label={t('agents.saveLabels')}
-                              tone="primary"
-                              disabled={savingLabelsId === a.id}
-                              onClick={() => { void saveLabels(a.id); }}
-                            >
-                              <IconSave />
-                            </IconButton>
-                            <Button
-                              variant="ghost"
-                              className="sd-btn-sm"
-                              onClick={() => cancelEditLabels(a.id)}
-                            >
-                              {t('common.cancel')}
-                            </Button>
-                          </div>
-                        </div>
+                    <div className="sd-chip-row" aria-label={t('agents.labels')} style={{ marginTop: 8 }}>
+                      {labels.length === 0 ? (
+                        <span className="sd-entity-muted">{t('agents.noLabels')}</span>
                       ) : (
-                        <div className="sd-agent-labels-view">
-                          <div className="sd-chip-row" aria-label={t('agents.labels')}>
-                            {labels.length === 0 ? (
-                              <span className="sd-entity-muted">{t('agents.noLabels')}</span>
-                            ) : (
-                              labels.map((label) => (
-                                <span key={label} className="sd-chip">{label}</span>
-                              ))
-                            )}
-                          </div>
-                          <Button
-                            variant="ghost"
-                            className="sd-btn-sm sd-agent-labels-edit-btn"
-                            onClick={() => startEditLabels(a)}
-                          >
-                            <IconEdit />
-                            {t('agents.editLabels')}
-                          </Button>
-                        </div>
+                        labels.map((label) => (
+                          <span key={label} className="sd-chip">{label}</span>
+                        ))
                       )}
                     </div>
                   </div>
                   <div className="sd-entity-actions">
+                    <IconButton label={t('common.edit')} onClick={() => openEdit(a)}>
+                      <IconEdit />
+                    </IconButton>
                     <IconButton
                       label={t('agents.remove')}
                       tone="danger"
@@ -254,6 +306,122 @@ export default function AgentsPage() {
                 <option value="grpc">gRPC</option>
               </Select>
             </Field>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={Boolean(editAgent)}
+        title={editAgent ? `${t('common.edit')}: ${editAgent.name}` : t('common.edit')}
+        onClose={closeEdit}
+        wide
+        footer={(
+          <>
+            <Button variant="ghost" onClick={closeEdit}>{t('common.cancel')}</Button>
+            <Button disabled={editSaving} onClick={() => { void saveAll(); }}>
+              {editSaving ? t('common.saving') : t('common.save')}
+            </Button>
+          </>
+        )}
+      >
+        {editError ? <Alert>{editError}</Alert> : null}
+        <Tabs
+          value={editTab}
+          onChange={(id) => {
+            setEditTab(id as EditTab);
+            setEnvMode(null);
+          }}
+          items={[
+            { id: 'labels', label: t('agents.labels') },
+            { id: 'env', label: t('agents.env'), count: draftEnvKeys.length || undefined },
+          ]}
+        />
+
+        {editTab === 'labels' ? (
+          <div className="sd-stack" style={{ marginTop: 16 }}>
+            <Field label={t('agents.labels')}>
+              <Input
+                value={editLabels}
+                placeholder={t('agents.labelsPlaceholder')}
+                onChange={(e) => setEditLabels(e.target.value)}
+                autoFocus
+              />
+            </Field>
+          </div>
+        ) : (
+          <div style={{ marginTop: 16 }}>
+            <div className="sd-secrets-section-head">
+              <div className="sd-entity-muted" style={{ fontSize: 12 }}>
+                {t('agents.envHint')}
+              </div>
+              {envMode === null ? (
+                <Button variant="ghost" className="sd-btn-sm" onClick={openEnvCreate}>
+                  + {t('agents.addEnv')}
+                </Button>
+              ) : (
+                <Button variant="ghost" className="sd-btn-sm" onClick={() => setEnvMode(null)}>
+                  ← {t('agents.showEnv')}
+                </Button>
+              )}
+            </div>
+
+            {envMode !== null ? (
+              <div className="sd-stack" style={{ marginTop: 12 }}>
+                {envFormError ? <Alert>{envFormError}</Alert> : null}
+                <Field label={t('secrets.name')}>
+                  <Input
+                    value={envName}
+                    disabled={envMode === 'edit'}
+                    placeholder={t('secrets.name')}
+                    onChange={(e) => setEnvName(e.target.value)}
+                    autoFocus
+                    autoComplete="off"
+                  />
+                </Field>
+                <Field label={t('secrets.value')}>
+                  <Input
+                    type="text"
+                    value={envValue}
+                    placeholder={envMode === 'edit' ? t('secrets.leaveBlank') : t('secrets.value')}
+                    onChange={(e) => setEnvValue(e.target.value)}
+                    autoComplete="off"
+                  />
+                </Field>
+                {envMode === 'edit' ? (
+                  <div style={{ fontSize: 12, color: 'var(--sd-muted)' }}>{t('secrets.valueKeepHint')}</div>
+                ) : null}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button variant="ghost" onClick={() => setEnvMode(null)}>{t('common.cancel')}</Button>
+                  <Button onClick={applyEnvDraft}>
+                    {envMode === 'create' ? t('agents.addEnv') : t('common.save')}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="sd-secret-list" style={{ marginTop: 12 }}>
+                {draftEnvKeys.length === 0 ? (
+                  <div className="sd-entity-muted">{t('agents.noEnv')}</div>
+                ) : (
+                  draftEnvKeys.map((key) => (
+                    <div key={key} className="sd-secret-row">
+                      <strong className="sd-secret-name">{key}</strong>
+                      <div className="sd-entity-actions">
+                        <IconButton label={t('common.edit')} onClick={() => openEnvEdit(key)}>
+                          <IconEdit />
+                        </IconButton>
+                        <IconButton
+                          label={t('common.delete')}
+                          tone="danger"
+                          onClick={() => deleteEnvDraft(key)}
+                        >
+                          <IconTrash />
+                        </IconButton>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         )}
       </Modal>

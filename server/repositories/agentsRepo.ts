@@ -40,6 +40,7 @@ export const agentsRepo = {
     db.delete(agents).where(eq(agents.id, id)).run();
   },
   update(id: string, patch: Partial<{
+    name: string;
     status: string;
     protocolVersion: number | null;
     agentVersion: string | null;

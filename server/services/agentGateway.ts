@@ -61,7 +61,6 @@ class AgentGateway extends EventEmitter {
     if (!token) return null;
     const row = agentsRepo.findByTokenHash(hashToken(token));
     if (!row) return null;
-    // Optional name check: if provided and differs, still accept token (source of truth)
     if (agentName && agentName !== row.name) {
       logger.warn('agent name mismatch; authenticating by token', {
         expected: row.name,
@@ -133,17 +132,18 @@ class AgentGateway extends EventEmitter {
         agentVersion?: string;
         hostname?: string;
         transport?: string;
+        agentName?: string;
       };
       const pv = Number(p.protocolVersion || 0);
       const status = pv < MIN_PROTOCOL_VERSION ? 'incompatible' : 'online';
       agentsRepo.update(agentId, {
-          status,
-          protocolVersion: pv,
-          agentVersion: p.agentVersion || null,
-          hostname: p.hostname || null,
-          transport: (p.transport as 'ws' | 'grpc') || row.transport,
-          lastSeenAt: new Date(),
-        });
+        status,
+        protocolVersion: pv,
+        agentVersion: p.agentVersion || null,
+        hostname: p.hostname || null,
+        transport: (p.transport as 'ws' | 'grpc') || row.transport,
+        lastSeenAt: new Date(),
+      });
       audit({
         actor: `agent:${row.name}`,
         action: status === 'online' ? 'agent.online' : 'agent.incompatible',

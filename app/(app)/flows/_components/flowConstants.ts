@@ -111,6 +111,10 @@ export const CONTEXT_FIELD_VALUES = [
   'oldDigest',
   'error',
   'approvalDecision',
+  'targetTag',
+  'currentTag',
+  'targetMode',
+  'targetRange',
 ] as const;
 
 /** @deprecated Prefer CONTEXT_FIELD_VALUES + t('contextFields.*') */
@@ -214,6 +218,10 @@ export const TEMPLATE_TAGS = [
   'failedNodeId',
   'failedNodeType',
   'approvalDecision',
+  'targetTag',
+  'currentTag',
+  'targetMode',
+  'targetRange',
   'runId',
   'flowId',
   'flowName',

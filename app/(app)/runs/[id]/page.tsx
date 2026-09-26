@@ -331,6 +331,7 @@ export default function RunDetailPage() {
   const [run, setRun] = useState<RunDetail | null>(null);
   const [rerunning, setRerunning] = useState(false);
   const [rerunError, setRerunError] = useState('');
+  const [overrideTargetTag, setOverrideTargetTag] = useState('');
 
   async function load() {
     setRun(await api<RunDetail>(`/runs/${id}`));
@@ -417,15 +418,45 @@ export default function RunDetailPage() {
       </div>
 
       {(run.status === 'awaiting_user' || run.status === 'waiting_approval') && (
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button type="button" onClick={async () => { await api(`/runs/${id}/continue`, { method: 'POST', body: JSON.stringify({ continue: true }) }); await load(); }}
-            style={{ background: 'var(--accent)', border: 'none', padding: '8px 12px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>
-            {run.status === 'waiting_approval' ? t('runs.approve') : t('runs.continue')}
-          </button>
-          <button type="button" onClick={async () => { await api(`/runs/${id}/continue`, { method: 'POST', body: JSON.stringify({ continue: false }) }); await load(); }}
-            style={{ background: 'transparent', border: '1px solid var(--danger)', color: 'var(--danger)', padding: '8px 12px', borderRadius: 8, cursor: 'pointer' }}>
-            {run.status === 'waiting_approval' ? t('runs.reject') : t('runs.abort')}
-          </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {run.status === 'waiting_approval' && (
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 360 }}>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>{t('runs.overrideTargetTag')}</span>
+              <input
+                value={overrideTargetTag}
+                onChange={(e) => setOverrideTargetTag(e.target.value)}
+                placeholder={String(run.context?.targetTag || run.context?.currentTag || '')}
+                style={{
+                  background: 'var(--sd-panel)',
+                  border: '1px solid var(--sd-border)',
+                  borderRadius: 6,
+                  padding: '6px 8px',
+                  color: 'var(--sd-text)',
+                }}
+              />
+            </label>
+          )}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" onClick={async () => {
+              await api(`/runs/${id}/continue`, {
+                method: 'POST',
+                body: JSON.stringify({
+                  continue: true,
+                  ...(overrideTargetTag.trim()
+                    ? { targetTag: overrideTargetTag.trim(), targetMode: 'pin_tag' }
+                    : {}),
+                }),
+              });
+              await load();
+            }}
+              style={{ background: 'var(--accent)', border: 'none', padding: '8px 12px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>
+              {run.status === 'waiting_approval' ? t('runs.approve') : t('runs.continue')}
+            </button>
+            <button type="button" onClick={async () => { await api(`/runs/${id}/continue`, { method: 'POST', body: JSON.stringify({ continue: false }) }); await load(); }}
+              style={{ background: 'transparent', border: '1px solid var(--danger)', color: 'var(--danger)', padding: '8px 12px', borderRadius: 8, cursor: 'pointer' }}>
+              {run.status === 'waiting_approval' ? t('runs.reject') : t('runs.abort')}
+            </button>
+          </div>
         </div>
       )}
 

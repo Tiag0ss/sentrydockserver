@@ -83,17 +83,25 @@ const AGENT_NODES = [
 ];
 
 const CONTAINER_NODES = [
-  'pull_image',
   'check_image_update',
   'recreate_container',
   'wait_healthy',
   'rollback',
 ];
 
+const CATALOG_IMAGE_NODES = ['pull_image', 'check_image_update'];
+
+type CatalogImage = {
+  id: string;
+  key: string;
+  name: string;
+  repository: string;
+};
 export function NodeInspector({ selectedNode, nodes = [], edges = [], onPatch }: Props) {
   const { t } = useI18n();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [secrets, setSecrets] = useState<SecretMeta[]>([]);
+  const [catalogImages, setCatalogImages] = useState<CatalogImage[]>([]);
   const [templates, setTemplates] = useState<Array<{ id: string; key: string; name: string; body: string }>>([]);
   const [containers, setContainers] = useState<ContainerRow[]>([]);
   const [loadingContainers, setLoadingContainers] = useState(false);
@@ -108,14 +116,16 @@ export function NodeInspector({ selectedNode, nodes = [], edges = [], onPatch }:
   useEffect(() => {
     void (async () => {
       try {
-        const [a, s, tpl] = await Promise.all([
+        const [a, s, tpl, imgs] = await Promise.all([
           api<Agent[]>('/agents'),
           api<SecretMeta[]>('/secrets'),
           api<Array<{ id: string; key: string; name: string; body: string }>>('/templates'),
+          api<CatalogImage[]>('/docker-images'),
         ]);
         setAgents(a);
         setSecrets(s);
         setTemplates(tpl);
+        setCatalogImages(imgs);
       } catch {
         /* keep empty */
       }
@@ -123,6 +133,7 @@ export function NodeInspector({ selectedNode, nodes = [], edges = [], onPatch }:
   }, []);
 
   const agentId = selectedNode ? String(selectedNode.data.agentId || '') : '';
+  const catalogImageId = selectedNode ? String(selectedNode.data.imageId || '') : '';
 
   useEffect(() => {
     if (!agentId) {
@@ -151,6 +162,15 @@ export function NodeInspector({ selectedNode, nodes = [], edges = [], onPatch }:
       hint: `${a.online ? t('agents.online') : tt(t, 'status', a.status)} · ${a.id.slice(0, 8)}…`,
     })),
     [agents, t],
+  );
+
+  const catalogImageOptions: SearchOption[] = useMemo(
+    () => catalogImages.map((img) => ({
+      value: img.id,
+      label: img.name,
+      hint: `${img.key} · ${img.repository}`,
+    })),
+    [catalogImages],
   );
 
   const secretOptions: SearchOption[] = useMemo(
@@ -404,7 +424,7 @@ export function NodeInspector({ selectedNode, nodes = [], edges = [], onPatch }:
         />
       )}
 
-      {CONTAINER_NODES.includes(type) && (
+      {CONTAINER_NODES.includes(type) && !CATALOG_IMAGE_NODES.includes(type) && (
         <SearchSelect
           label={t('inspector.image')}
           value={String(selectedNode.data.image || '')}
@@ -416,7 +436,18 @@ export function NodeInspector({ selectedNode, nodes = [], edges = [], onPatch }:
         />
       )}
 
-      {['pull_image', 'check_image_update'].includes(type) && (
+      {CATALOG_IMAGE_NODES.includes(type) && (
+        <SearchSelect
+          label={t('inspector.catalogImage')}
+          value={catalogImageId}
+          options={catalogImageOptions}
+          onChange={(v) => patch('imageId', v)}
+          placeholder={t('inspector.searchCatalogImage')}
+          emptyLabel={t('inspector.selectCatalogImage')}
+        />
+      )}
+
+      {type === 'recreate_container' && (
         <SearchSelect
           label={t('inspector.secret')}
           value={String(selectedNode.data.secretId || '')}
@@ -663,10 +694,31 @@ export function NodeInspector({ selectedNode, nodes = [], edges = [], onPatch }:
       )}
 
       {type === 'wait_approval' && (
-        templatePicker('message', {
-          messageLabel: t('inspector.approvalMessage'),
-          placeholder: t('inspector.approvalPlaceholder'),
-        })
+        <>
+          {templatePicker('message', {
+            messageLabel: t('inspector.approvalMessage'),
+            placeholder: t('inspector.approvalPlaceholder'),
+          })}
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input
+              type="checkbox"
+              checked={Boolean(selectedNode.data.allowTargetOverride)}
+              onChange={(e) => patch('allowTargetOverride', e.target.checked)}
+            />
+            {t('inspector.allowTargetOverride')}
+          </label>
+        </>
+      )}
+
+      {type === 'recreate_container' && (
+        <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input
+            type="checkbox"
+            checked={Boolean(selectedNode.data.advancePinOnSuccess)}
+            onChange={(e) => patch('advancePinOnSuccess', e.target.checked)}
+          />
+          {t('inspector.advancePinOnSuccess')}
+        </label>
       )}
 
       {type === 'webhook' && (

@@ -20,6 +20,7 @@ import { agentGateway } from './agentGateway';
 import { AppError } from '../utils/errors';
 import logger from '../utils/logger';
 import { unreadNotificationCount } from './notificationsService';
+import { updateAgentMeta } from './agentsService';
 
 function flowNameMap(): Map<string, string> {
   const map = new Map<string, string>();
@@ -213,7 +214,13 @@ function stepRank(status: string): number {
   }
 }
 
-export async function continueRun(id: string, input: { continue: boolean; branchIds?: string[] }) {
+export async function continueRun(id: string, input: {
+  continue: boolean;
+  branchIds?: string[];
+  targetTag?: string;
+  targetRange?: string;
+  targetMode?: string;
+}) {
   try {
     await userContinueRun(id, input);
   } catch (err) {
@@ -560,17 +567,7 @@ export function importOpsBundle(input: {
 }
 
 export function updateAgentLabels(id: string, labels: string[]) {
-  const row = agentsRepo.findById(id);
-  if (!row) throw new AppError(404, 'agent not found', 'not_found');
-  let meta: Record<string, unknown> = {};
-  try {
-    meta = row.metaJson ? JSON.parse(row.metaJson) : {};
-  } catch {
-    meta = {};
-  }
-  meta.labels = labels.map((l) => String(l).trim()).filter(Boolean);
-  agentsRepo.update(id, { metaJson: JSON.stringify(meta) });
-  return { id, labels: meta.labels };
+  return updateAgentMeta(id, { labels });
 }
 
 export function listWebhookTriggers() {

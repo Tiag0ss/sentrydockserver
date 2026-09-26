@@ -28,12 +28,20 @@ import {
   createWebhookTriggerSchema,
   updateWebhookTriggerSchema,
   updateSettingSchema,
+  createComposeProjectSchema,
+  updateComposeProjectSchema,
+  deployComposeSchema,
+  checkComposeSchema,
+  createDockerImageSchema,
+  updateDockerImageSchema,
 } from '../validation/schemas';
 import * as authService from '../services/authService';
 import * as agentsService from '../services/agentsService';
 import * as secretsService from '../services/secretsService';
 import * as flowsService from '../services/flowsService';
 import * as ops from '../services/opsService';
+import * as imagesService from '../services/imagesService';
+import * as composeService from '../services/composeService';
 
 export const apiRouter = Router();
 
@@ -94,11 +102,23 @@ apiRouter.delete('/agents/:id', authRequired, requirePasswordOk, requireModify, 
 }));
 
 apiRouter.patch('/agents/:id', authRequired, requirePasswordOk, requireModify, validateBody(updateAgentSchema), (req, res) => {
-  res.json(ops.updateAgentLabels(param(req), req.body.labels || []));
+  res.json(agentsService.updateAgentMeta(param(req), {
+    labels: req.body.labels,
+    env: req.body.env,
+    envUpsert: req.body.envUpsert,
+    envDelete: req.body.envDelete,
+  }));
 });
 
 apiRouter.get('/agents/:id/containers', authRequired, requirePasswordOk, asyncHandler(async (req, res) => {
   const data = await agentsService.listAgentContainers(param(req));
+  res.json(data);
+}));
+
+apiRouter.get('/agents/:id/image-tags', authRequired, requirePasswordOk, asyncHandler(async (req, res) => {
+  const imageRepo = String(req.query.imageRepo || req.query.image || '');
+  const secretId = req.query.secretId ? String(req.query.secretId) : null;
+  const data = await agentsService.listAgentImageTags(param(req), imageRepo, secretId);
   res.json(data);
 }));
 
@@ -317,3 +337,56 @@ apiRouter.put('/settings/:key', authRequired, requirePasswordOk, requireModify, 
   ops.updateSetting(param(req, 'key'), req.body.value);
   res.json({ ok: true });
 });
+
+apiRouter.get('/compose-projects', authRequired, requirePasswordOk, (_req, res) => {
+  res.json(composeService.listComposeProjects());
+});
+
+apiRouter.get('/compose-projects/:id', authRequired, requirePasswordOk, (req, res) => {
+  res.json(composeService.getComposeProject(param(req)));
+});
+
+apiRouter.post('/compose-projects', authRequired, requirePasswordOk, requireModify, validateBody(createComposeProjectSchema), asyncHandler(async (req, res) => {
+  const row = await composeService.createComposeProject(req.body, req.user!.username);
+  res.status(201).json(row);
+}));
+
+apiRouter.put('/compose-projects/:id', authRequired, requirePasswordOk, requireModify, validateBody(updateComposeProjectSchema), asyncHandler(async (req, res) => {
+  res.json(await composeService.updateComposeProject(param(req), req.body, req.user!.username));
+}));
+
+apiRouter.delete('/compose-projects/:id', authRequired, requirePasswordOk, requireModify, asyncHandler(async (req, res) => {
+  res.json(await composeService.deleteComposeProject(param(req), req.user!.username));
+}));
+
+apiRouter.post('/compose-projects/:id/deploy', authRequired, requirePasswordOk, requireModify, validateBody(deployComposeSchema), asyncHandler(async (req, res) => {
+  res.json(await composeService.deployComposeProject(param(req), req.body, req.user!.username));
+}));
+
+apiRouter.post('/compose-projects/:id/check', authRequired, requirePasswordOk, requireModify, validateBody(checkComposeSchema), asyncHandler(async (req, res) => {
+  res.json(await composeService.checkComposeProject(param(req), req.body.agentIds));
+}));
+
+apiRouter.get('/docker-images', authRequired, requirePasswordOk, (_req, res) => {
+  res.json(imagesService.listDockerImages());
+});
+
+apiRouter.post('/docker-images/sync', authRequired, requirePasswordOk, requireModify, asyncHandler(async (req, res) => {
+  const agentIds = Array.isArray(req.body?.agentIds) ? req.body.agentIds.map(String) : undefined;
+  res.json(await imagesService.syncDockerImagesFromAgents(req.user!.username, agentIds));
+}));
+
+apiRouter.get('/docker-images/:id', authRequired, requirePasswordOk, (req, res) => {
+  res.json(imagesService.getDockerImage(param(req)));
+});
+apiRouter.post('/docker-images', authRequired, requirePasswordOk, requireModify, validateBody(createDockerImageSchema), asyncHandler(async (req, res) => {
+  res.status(201).json(await imagesService.createDockerImage(req.body, req.user!.username));
+}));
+
+apiRouter.put('/docker-images/:id', authRequired, requirePasswordOk, requireModify, validateBody(updateDockerImageSchema), asyncHandler(async (req, res) => {
+  res.json(await imagesService.updateDockerImage(param(req), req.body, req.user!.username));
+}));
+
+apiRouter.delete('/docker-images/:id', authRequired, requirePasswordOk, requireModify, asyncHandler(async (req, res) => {
+  res.json(await imagesService.deleteDockerImage(param(req), req.user!.username));
+}));

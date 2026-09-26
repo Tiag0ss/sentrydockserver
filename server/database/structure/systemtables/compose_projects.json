@@ -1,0 +1,37 @@
+{
+  "TableName": "compose_projects",
+  "PrimaryKeyFields": "id",
+  "Fields": [
+    {
+      "FieldName": "id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "name",
+      "DataType": "varchar(255)",
+      "NotNullable": true,
+      "Unique": true
+    },
+    {
+      "FieldName": "yaml_text",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "content_hash",
+      "DataType": "varchar(64)",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "created_at",
+      "DataType": "integer",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "updated_at",
+      "DataType": "integer",
+      "NotNullable": true
+    }
+  ]
+}
