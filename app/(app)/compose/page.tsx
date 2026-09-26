@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import {
@@ -49,6 +50,7 @@ function statusColor(status: string): string {
 
 export default function ComposePage() {
   const { t, formatDate } = useI18n();
+  const router = useRouter();
   const [projects, setProjects] = useState<ComposeProject[]>([]);
   const [agents, setAgents] = useState<AgentRow[]>([]);
   const [error, setError] = useState('');
@@ -63,6 +65,8 @@ export default function ComposePage() {
   const [forceDeploy, setForceDeploy] = useState(false);
   const [deployBusy, setDeployBusy] = useState(false);
   const [deployResult, setDeployResult] = useState('');
+  const [flowBusyId, setFlowBusyId] = useState<string | null>(null);
+  const [flowMsg, setFlowMsg] = useState('');
 
   async function load() {
     const [p, a] = await Promise.all([
@@ -175,6 +179,27 @@ export default function ComposePage() {
     }
   }
 
+  async function createUpdateFlow(p: ComposeProject) {
+    setFlowBusyId(p.id);
+    setFlowMsg('');
+    setError('');
+    try {
+      const res = await api<{
+        flowId: string;
+        name: string;
+        targetsCount: number;
+        warnings?: string[];
+      }>(`/compose-projects/${p.id}/create-update-flow`, { method: 'POST', body: '{}' });
+      const warn = res.warnings?.length ? ` ${res.warnings.join(' ')}` : '';
+      setFlowMsg(t('compose.flowCreated', { name: res.name, count: res.targetsCount }) + warn);
+      router.push(`/flows?edit=${encodeURIComponent(res.flowId)}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('common.error'));
+    } finally {
+      setFlowBusyId(null);
+    }
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <PageHeader
@@ -183,6 +208,7 @@ export default function ComposePage() {
         actions={<Button onClick={openCreate}>{t('compose.create')}</Button>}
       />
       {error ? <Alert>{error}</Alert> : null}
+      {flowMsg ? <Alert>{flowMsg}</Alert> : null}
 
       {projects.length === 0 ? (
         <EmptyState>{t('compose.empty')}</EmptyState>
@@ -196,9 +222,17 @@ export default function ComposePage() {
                   hash {p.contentHash.slice(0, 12)}…
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                 <Button variant="ghost" onClick={() => openDeploy(p)}>{t('compose.deploy')}</Button>
                 <Button variant="ghost" onClick={() => void runCheck(p.id)}>{t('compose.check')}</Button>
+                <Button
+                  variant="ghost"
+                  disabled={flowBusyId === p.id || p.states.length === 0}
+                  title={p.states.length === 0 ? t('compose.flowNeedsDeploy') : undefined}
+                  onClick={() => { void createUpdateFlow(p); }}
+                >
+                  {flowBusyId === p.id ? t('compose.creatingFlow') : t('compose.createUpdateFlow')}
+                </Button>
                 <IconButton label={t('common.edit')} onClick={() => openEdit(p)}><IconEdit /></IconButton>
                 <IconButton label={t('common.delete')} onClick={() => void remove(p.id)}><IconTrash /></IconButton>
               </div>
@@ -306,8 +340,20 @@ export default function ComposePage() {
           {deployResult ? (
             <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 12 }}>{deployResult}</pre>
           ) : null}
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
             <Button variant="ghost" onClick={() => setDeployId(null)}>{t('common.cancel')}</Button>
+            {deployId && deployResult && !deployBusy ? (
+              <Button
+                variant="ghost"
+                disabled={flowBusyId === deployId}
+                onClick={() => {
+                  const p = projects.find((x) => x.id === deployId);
+                  if (p) void createUpdateFlow(p);
+                }}
+              >
+                {flowBusyId === deployId ? t('compose.creatingFlow') : t('compose.createUpdateFlow')}
+              </Button>
+            ) : null}
             <Button onClick={() => void runDeploy()} disabled={deployBusy}>
               {deployBusy ? t('compose.deploying') : t('compose.deploy')}
             </Button>

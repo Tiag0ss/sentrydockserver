@@ -57,6 +57,16 @@
       "FieldName": "finished_at",
       "DataType": "integer",
       "NotNullable": false
+    },
+    {
+      "FieldName": "parent_run_id",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "parent_step_id",
+      "DataType": "text",
+      "NotNullable": false
     }
   ]
 }

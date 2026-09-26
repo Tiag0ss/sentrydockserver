@@ -136,11 +136,36 @@ export function getRun(id: string) {
     agentName: b.agentId ? (agentNames.get(b.agentId) || b.agentId.slice(0, 8)) : null,
   }));
 
+  const names = flowNameMap();
+  const parentRow = run.parentRunId ? runsRepo.findById(run.parentRunId) : null;
+  const children = runsRepo.childrenOf(run.id)
+    .filter((c) => c.triggerSource !== 'lock')
+    .map((c) => ({
+      id: c.id,
+      flowId: c.flowId,
+      flowName: names.get(c.flowId) || c.flowId.slice(0, 8),
+      status: c.status,
+      parentStepId: c.parentStepId,
+      startedAt: c.startedAt,
+      finishedAt: c.finishedAt,
+    }));
+
   return {
     ...run,
     context: runContext,
     steps,
     branches,
+    parentRunId: run.parentRunId || null,
+    parentStepId: run.parentStepId || null,
+    parent: parentRow
+      ? {
+        id: parentRow.id,
+        flowId: parentRow.flowId,
+        flowName: names.get(parentRow.flowId) || parentRow.flowId.slice(0, 8),
+        status: parentRow.status,
+      }
+      : null,
+    children,
     flow: flow
       ? { id: flow.id, name: flow.name, graph }
       : null,

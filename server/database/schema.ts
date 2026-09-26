@@ -81,7 +81,7 @@ export const flowRuns = sqliteTable('flow_runs', {
   id: text('id').primaryKey(),
   flowId: text('flow_id').notNull(),
   status: text('status').notNull(),
-  triggerSource: text('trigger_source').notNull(), // cron | manual | webhook | resume
+  triggerSource: text('trigger_source').notNull(), // cron | manual | webhook | resume | subflow
   lockKey: text('lock_key'),
   currentNodeId: text('current_node_id'),
   contextJson: text('context_json'),
@@ -89,6 +89,8 @@ export const flowRuns = sqliteTable('flow_runs', {
   summary: text('summary'),
   startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
   finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
+  parentRunId: text('parent_run_id'),
+  parentStepId: text('parent_step_id'),
 });
 
 export const flowRunSteps = sqliteTable('flow_run_steps', {

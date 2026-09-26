@@ -70,6 +70,15 @@ type RunDetail = {
   branches: RunBranch[];
   flow: { id: string; name: string; graph: RunGraph } | null;
   nodeStatuses: NodeStatusMap;
+  parentRunId?: string | null;
+  parent?: { id: string; flowId: string; flowName: string; status: string } | null;
+  children?: Array<{
+    id: string;
+    flowId: string;
+    flowName: string;
+    status: string;
+    parentStepId?: string | null;
+  }>;
 };
 
 function stepStatusColor(status: string): string {
@@ -288,8 +297,12 @@ function RunContextPanel({
   const oldDigest = context.oldDigest != null ? String(context.oldDigest) : '';
   const newDigest = context.newDigest != null ? String(context.newDigest) : '';
   const updateAvailable = context.updateAvailable;
+  const targets = Array.isArray(context.targets) ? context.targets : [];
+  const skipped = Array.isArray(context.skippedTargets) ? context.skippedTargets : [];
 
-  if (!image && !container && !oldDigest && !newDigest && updateAvailable == null) return null;
+  if (!image && !container && !oldDigest && !newDigest && updateAvailable == null && !targets.length) {
+    return null;
+  }
 
   return (
     <section style={{
@@ -305,6 +318,16 @@ function RunContextPanel({
       {updateAvailable != null && (
         <DetailRow label={t('runs.detailReason')}>
           {updateAvailable ? t('runs.detailUpdateYes') : t('runs.detailUpdateNo')}
+        </DetailRow>
+      )}
+      {targets.length > 0 && (
+        <DetailRow label={t('runs.targetsToUpdate')}>
+          {targets.length}
+        </DetailRow>
+      )}
+      {skipped.length > 0 && (
+        <DetailRow label={t('runs.targetsSkipped')}>
+          {skipped.length}
         </DetailRow>
       )}
       {container ? <DetailRow label={t('contextFields.containerName')}>{container}</DetailRow> : null}
@@ -368,6 +391,15 @@ export default function RunDetailPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {run.parent && (
+        <nav style={{ fontSize: 13, color: 'var(--muted)' }}>
+          <Link href={`/runs/${run.parent.id}`} style={{ color: 'var(--accent)' }}>
+            {run.parent.flowName}
+          </Link>
+          {' ← '}
+          <span>{run.flow?.name || run.id.slice(0, 8)}</span>
+        </nav>
+      )}
       <header style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <h1 style={{ margin: 0 }}>{run.flow?.name || t('runs.runFallback', { id: run.id.slice(0, 8) })}</h1>
         <span style={{ color: 'var(--muted)', fontSize: 14 }} title={run.id}>{run.id.slice(0, 8)}…</span>
@@ -417,15 +449,50 @@ export default function RunDetailPage() {
         ) : null}
       </div>
 
+      {run.children && run.children.length > 0 && (
+        <section style={{
+          border: '1px solid var(--border)',
+          borderRadius: 10,
+          padding: '12px 14px',
+          background: 'var(--panel)',
+        }}>
+          <h2 style={{ margin: '0 0 8px', fontSize: 16 }}>{t('runs.childRuns')}</h2>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
+            {run.children.map((c) => (
+              <li key={c.id} style={{ marginBottom: 4 }}>
+                <Link href={`/runs/${c.id}`} style={{ color: 'var(--accent)' }}>
+                  {c.flowName}
+                </Link>
+                {' · '}
+                <span style={{ color: stepStatusColor(c.status) }}>{statusLabel(t, c.status)}</span>
+                <span style={{ color: 'var(--muted)' }}> · {c.id.slice(0, 8)}…</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {(run.status === 'awaiting_user' || run.status === 'waiting_approval') && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {run.status === 'waiting_approval' && (
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', maxWidth: 480, lineHeight: 1.45 }}>
+              {t('runs.approvalHint')}
+              {run.context?.image ? (
+                <>
+                  {' '}
+                  <code style={{ color: 'var(--sd-text)' }}>{String(run.context.image)}</code>
+                </>
+              ) : null}
+            </p>
+          )}
+          {run.status === 'waiting_approval'
+            && Boolean(currentNode?.data?.allowTargetOverride) && (
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 360 }}>
               <span style={{ fontSize: 12, color: 'var(--muted)' }}>{t('runs.overrideTargetTag')}</span>
               <input
                 value={overrideTargetTag}
                 onChange={(e) => setOverrideTargetTag(e.target.value)}
-                placeholder={String(run.context?.targetTag || run.context?.currentTag || '')}
+                placeholder={t('runs.overrideTargetTagPlaceholder')}
                 style={{
                   background: 'var(--sd-panel)',
                   border: '1px solid var(--sd-border)',

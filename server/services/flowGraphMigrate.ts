@@ -1,5 +1,6 @@
 /**
- * Migra graphs legados: condition→if; multi-handles de acções → CASE a seguir.
+ * Migra graphs legados: condition→if; multi-handles de acções (só `out`) → CASE a seguir.
+ * Nodes com saídas nativas (check_image_update, run_flow, if, case) não são tocados.
  */
 import { v4 as uuid } from 'uuid';
 
@@ -22,8 +23,8 @@ type GEdge = {
 
 type FlowGraph = { nodes: GNode[]; edges: GEdge[] };
 
-const ACTION_TYPES = new Set([
-  'check_image_update',
+/** Acções que no modelo antigo só tinham `out` — multi-handles legados viram CASE. */
+const LEGACY_SINGLE_OUT_ACTIONS = new Set([
   'pull_image',
   'recreate_container',
   'compose_up',
@@ -62,15 +63,18 @@ export function migrateFlowGraph(graph: unknown): FlowGraph {
   });
   let edges = [...(g.edges || [])];
 
-  const actionIds = nodes.filter((n) => ACTION_TYPES.has(nodeTypeOf(n))).map((n) => n.id);
+  const actionIds = nodes
+    .filter((n) => LEGACY_SINGLE_OUT_ACTIONS.has(nodeTypeOf(n)))
+    .map((n) => n.id);
 
   for (const actionId of actionIds) {
     const outgoing = edges.filter((e) => e.source === actionId);
     const handles = new Set(
       outgoing.map((e) => String(e.sourceHandle || 'out')),
     );
-    // Já só out, ou sem arestas
-    if (handles.size <= 1 && (handles.has('out') || handles.has('ok') || handles.size === 0)) {
+
+    // Um handle (ou nenhum): normalizar para out — nunca inserir CASE
+    if (handles.size <= 1) {
       edges = edges.map((e) => (
         e.source === actionId
           ? { ...e, sourceHandle: 'out' }
@@ -78,13 +82,23 @@ export function migrateFlowGraph(graph: unknown): FlowGraph {
       ));
       continue;
     }
-    // Multi-handle → inserir CASE
+
+    // Já só out/ok (aliases) — sem CASE
+    const nonOut = [...handles].filter((h) => h !== 'out' && h !== 'ok' && h !== 'success');
+    if (nonOut.length === 0) {
+      edges = edges.map((e) => (
+        e.source === actionId
+          ? { ...e, sourceHandle: 'out' }
+          : e
+      ));
+      continue;
+    }
+
+    // Multi-handle legado → inserir CASE uma vez
     const action = nodes.find((n) => n.id === actionId)!;
     const caseId = uuid();
     const pos = action.position || { x: 0, y: 0 };
-    const cases = [...handles]
-      .filter((h) => h !== 'else')
-      .map((h) => ({ id: h, match: h }));
+    const cases = nonOut.map((h) => ({ id: h, match: h }));
 
     nodes.push({
       id: caseId,
@@ -98,7 +112,6 @@ export function migrateFlowGraph(graph: unknown): FlowGraph {
       } as never,
     });
 
-    // Remover edges antigas do action; ligar action→case; case→targets
     edges = edges.filter((e) => e.source !== actionId);
     edges.push({
       id: `e-${actionId}-${caseId}`,
@@ -113,9 +126,44 @@ export function migrateFlowGraph(graph: unknown): FlowGraph {
         id: e.id || `e-${caseId}-${e.target}-${h}`,
         source: caseId,
         target: e.target,
-        sourceHandle: h === 'ok' ? 'else' : h,
+        sourceHandle: h === 'ok' || h === 'out' || h === 'success' ? 'else' : h,
         targetHandle: e.targetHandle || 'in',
       });
+    }
+  }
+
+  // Remover CASE inseridos por engano após nodes com saídas nativas (check / run_flow).
+  // Cada save antigo criava mais um elo; aqui desfazemos a cadeia.
+  const NATIVE_BRANCH = new Set(['check_image_update', 'run_flow']);
+  let unwrapped = true;
+  while (unwrapped) {
+    unwrapped = false;
+    for (const n of [...nodes]) {
+      if (!NATIVE_BRANCH.has(nodeTypeOf(n))) continue;
+      const outs = edges.filter((e) => e.source === n.id);
+      for (const e of outs) {
+        const mid = nodes.find((x) => x.id === e.target);
+        if (!mid || nodeTypeOf(mid) !== 'case') continue;
+        const caseOut = edges.filter((ce) => ce.source === mid.id);
+        edges = edges.filter((x) => !(x.source === n.id && x.target === mid.id) && x.source !== mid.id);
+        for (const ce of caseOut) {
+          const h = String(ce.sourceHandle || 'out');
+          edges.push({
+            id: ce.id || `e-${n.id}-${ce.target}-${h}`,
+            source: n.id,
+            target: ce.target,
+            sourceHandle: h === 'out' || h === 'ok' || h === 'success'
+              ? (nodeTypeOf(n) === 'check_image_update' ? 'update' : 'success')
+              : h,
+            targetHandle: ce.targetHandle || 'in',
+          });
+        }
+        const stillUsed = edges.some((x) => x.source === mid.id || x.target === mid.id);
+        if (!stillUsed) {
+          nodes = nodes.filter((x) => x.id !== mid.id);
+        }
+        unwrapped = true;
+      }
     }
   }
 

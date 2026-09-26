@@ -5,7 +5,7 @@ import { agentsRepo } from '../repositories/agentsRepo';
 import { audit } from './audit';
 import { getSecretPlain } from './secretsService';
 import { agentGateway } from './agentGateway';
-import { resolveDesiredImageRef, type TargetMode } from './imageTarget';
+import { resolveDesiredImageRef, splitImageRef, type TargetMode } from './imageTarget';
 import { AppError } from '../utils/errors';
 import logger from '../utils/logger';
 
@@ -82,7 +82,8 @@ export async function createDockerImage(input: DockerImageInput, actor: string) 
   const key = normalizeKey(input.key);
   assertKey(key);
   const name = String(input.name || '').trim();
-  const repository = String(input.repository || '').trim();
+  let repository = String(input.repository || '').trim();
+  repository = repository.replace(/[@:].*$/, '');
   if (!name) throw new AppError(400, 'name required', 'validation');
   if (!repository) throw new AppError(400, 'repository required', 'validation');
   if (imagesRepo.findByKey(key)) throw new AppError(409, 'key already exists', 'conflict');
@@ -90,13 +91,21 @@ export async function createDockerImage(input: DockerImageInput, actor: string) 
   assertSecret(secretId);
   const now = new Date();
   const id = uuid();
+  const mode = (input.targetMode as TargetMode) || 'follow_tag';
+  let targetTag = input.targetTag != null ? String(input.targetTag).trim() || null : null;
+  if ((mode === 'follow_tag' || mode === 'pin_tag') && !targetTag) {
+    targetTag = mode === 'follow_tag' ? 'latest' : null;
+  }
+  if (mode === 'pin_tag' && !targetTag) {
+    throw new AppError(400, 'targetTag required for pin_tag', 'validation');
+  }
   imagesRepo.insert({
     id,
     key,
     name,
     repository,
-    targetMode: (input.targetMode as TargetMode) || 'follow_tag',
-    targetTag: input.targetTag != null ? String(input.targetTag).trim() || null : null,
+    targetMode: mode,
+    targetTag,
     targetRange: input.targetRange != null ? String(input.targetRange).trim() || null : null,
     allowPrerelease: Boolean(input.allowPrerelease),
     secretId,
@@ -115,21 +124,28 @@ export async function updateDockerImage(id: string, input: Partial<DockerImageIn
   const other = imagesRepo.findByKey(key);
   if (other && other.id !== id) throw new AppError(409, 'key already exists', 'conflict');
   const name = input.name != null ? String(input.name).trim() : existing.name;
-  const repository = input.repository != null ? String(input.repository).trim() : existing.repository;
+  let repository = input.repository != null ? String(input.repository).trim() : existing.repository;
+  repository = repository.replace(/[@:].*$/, '');
   if (!name) throw new AppError(400, 'name required', 'validation');
   if (!repository) throw new AppError(400, 'repository required', 'validation');
   const secretId = input.secretId !== undefined
     ? (input.secretId ? String(input.secretId) : null)
     : existing.secretId;
   assertSecret(secretId);
+  const targetMode = input.targetMode != null ? String(input.targetMode) : existing.targetMode;
+  let targetTag = input.targetTag !== undefined
+    ? (input.targetTag != null ? String(input.targetTag).trim() || null : null)
+    : existing.targetTag;
+  if (targetMode === 'follow_tag' && !targetTag) targetTag = 'latest';
+  if (targetMode === 'pin_tag' && !targetTag) {
+    throw new AppError(400, 'targetTag required for pin_tag', 'validation');
+  }
   imagesRepo.update(id, {
     key,
     name,
     repository,
-    targetMode: input.targetMode != null ? String(input.targetMode) : existing.targetMode,
-    targetTag: input.targetTag !== undefined
-      ? (input.targetTag != null ? String(input.targetTag).trim() || null : null)
-      : existing.targetTag,
+    targetMode,
+    targetTag,
     targetRange: input.targetRange !== undefined
       ? (input.targetRange != null ? String(input.targetRange).trim() || null : null)
       : existing.targetRange,
@@ -271,6 +287,99 @@ export async function resolveSdImageEnvForYaml(
     env,
     registryAuths: [...authByServer.values()],
     missingKeys,
+  };
+}
+
+function repoMatches(a: string, b: string): boolean {
+  const ra = splitImageRef(a).repo.toLowerCase();
+  const rb = splitImageRef(b).repo.toLowerCase();
+  if (!ra || !rb) return false;
+  if (ra === rb) return true;
+  // docker hub library/foo vs foo
+  if (!ra.includes('/') && rb === `library/${ra}`) return true;
+  if (!rb.includes('/') && ra === `library/${rb}`) return true;
+  return false;
+}
+
+/** Running containers across online agents that use this catalog image's repository. */
+export async function listRunningContainersForImage(imageId: string) {
+  const row = imagesRepo.findById(imageId) || imagesRepo.findByKey(normalizeKey(imageId));
+  if (!row) throw new AppError(404, 'image not found', 'not_found');
+  const catalogRepo = row.repository;
+
+  type Cont = {
+    name: string;
+    image: string;
+    composeProject?: string | null;
+    composeService?: string | null;
+  };
+  const agentsOut: Array<{
+    agentId: string;
+    agentName: string;
+    online: boolean;
+    containers: Cont[];
+  }> = [];
+
+  for (const agent of agentsRepo.list()) {
+    const online = agentGateway.isOnline(agent.id);
+    if (!online) {
+      agentsOut.push({
+        agentId: agent.id,
+        agentName: agent.name,
+        online: false,
+        containers: [],
+      });
+      continue;
+    }
+    try {
+      const list = await agentGateway.sendCommand(agent.id, 'docker.list', { all: true }, 60_000) as Array<{
+        name?: string;
+        names?: string[];
+        image?: string;
+        configImage?: string;
+        composeProject?: string | null;
+        composeService?: string | null;
+      }>;
+      const containers: Cont[] = [];
+      for (const c of Array.isArray(list) ? list : []) {
+        const name = String(c.name || (c.names?.[0] || '').replace(/^\//, '') || '').trim();
+        const image = String(c.configImage || c.image || '').trim();
+        if (!name || !image) continue;
+        if (!repoMatches(image, catalogRepo)) continue;
+        containers.push({
+          name,
+          image,
+          composeProject: c.composeProject || null,
+          composeService: c.composeService || null,
+        });
+      }
+      containers.sort((a, b) => a.name.localeCompare(b.name));
+      agentsOut.push({
+        agentId: agent.id,
+        agentName: agent.name,
+        online: true,
+        containers,
+      });
+    } catch (err) {
+      logger.warn('listRunningContainersForImage agent failed', {
+        agentId: agent.id,
+        err: err instanceof Error ? err.message : String(err),
+      });
+      agentsOut.push({
+        agentId: agent.id,
+        agentName: agent.name,
+        online: true,
+        containers: [],
+      });
+    }
+  }
+
+  agentsOut.sort((a, b) => a.agentName.localeCompare(b.agentName));
+  return {
+    imageId: row.id,
+    key: row.key,
+    repository: row.repository,
+    agents: agentsOut,
   };
 }
 

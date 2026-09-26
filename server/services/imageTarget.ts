@@ -178,12 +178,15 @@ export async function resolveDesiredImageRef(
   const targetRange = input.targetRange != null ? String(input.targetRange).trim() : '';
 
   if (mode === 'follow_tag') {
+    const follow = targetTag || tag || digest || 'latest';
+    if (!repo) throw new Error('follow_tag requires image repo');
+    const imageRef = buildImageRef(repo, follow);
     return {
       mode,
-      imageRef: image,
+      imageRef,
       repo,
-      selectedTag: tag || digest || null,
-      targetTag: null,
+      selectedTag: follow,
+      targetTag: follow,
       targetRange: null,
     };
   }

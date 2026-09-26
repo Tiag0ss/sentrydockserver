@@ -14,6 +14,8 @@ import {
   targetInputFromNodeAndCtx,
 } from './imageTarget';
 import { getRegistryAuth, resolveCatalogImageRef } from './imagesService';
+import { deployComposeProject } from './composeService';
+import { imagesRepo } from '../repositories/imagesRepo';
 import logger from '../utils/logger';
 
 export type FlowNode = {
@@ -107,6 +109,27 @@ function resolveNodeMessage(
 
 function renderTemplate(body: string, ctx: RunContext, opts?: { human?: boolean }): string {
   const vars: Record<string, unknown> = { ...ctx };
+  const formatTargetList = (raw: unknown): string => {
+    if (!Array.isArray(raw) || raw.length === 0) return '';
+    return raw.map((t) => {
+      if (!t || typeof t !== 'object') return String(t);
+      const row = t as Record<string, unknown>;
+      const agentId = String(row.agentId || '');
+      const agentName = agentId
+        ? (agentsRepo.findById(agentId)?.name || agentId.slice(0, 8))
+        : '';
+      const name = String(row.containerName || '');
+      return agentName ? `${name} @ ${agentName}` : name;
+    }).filter(Boolean).join(', ');
+  };
+  if (Array.isArray(ctx.targets)) {
+    vars.targetsList = formatTargetList(ctx.targets);
+    vars.targetsCount = (ctx.targets as unknown[]).length;
+  }
+  if (Array.isArray(ctx.skippedTargets)) {
+    vars.skippedTargetsList = formatTargetList(ctx.skippedTargets);
+    vars.skippedTargetsCount = (ctx.skippedTargets as unknown[]).length;
+  }
   if (opts?.human) {
     const agentId = ctx.agentId != null ? String(ctx.agentId) : '';
     if (agentId) {
@@ -144,6 +167,19 @@ export function acquireLock(lockKey: string): boolean {
   return runsRepo.activeByLock(lockKey).length === 0;
 }
 
+/** Locks em memória por contentor (além do lock_key em flow_runs). */
+const containerLocks = new Map<string, string>(); // lockKey → runId
+
+function tryAcquireContainerLock(lockKey: string, runId: string): boolean {
+  if (containerLocks.has(lockKey)) return false;
+  containerLocks.set(lockKey, runId);
+  return true;
+}
+
+function releaseContainerLock(lockKey: string, runId: string) {
+  if (containerLocks.get(lockKey) === runId) containerLocks.delete(lockKey);
+}
+
 export async function startFlowRun(opts: {
   flowId: string;
   triggerSource: string;
@@ -151,6 +187,8 @@ export async function startFlowRun(opts: {
   lockKey?: string;
   dryRun?: boolean;
   actor?: string;
+  parentRunId?: string | null;
+  parentStepId?: string | null;
 }): Promise<string> {
   const flow = flowsRepo.findById(opts.flowId);
   if (!flow) throw new Error('Flow not found');
@@ -171,6 +209,8 @@ export async function startFlowRun(opts: {
       contextJson: JSON.stringify(opts.context || {}),
       dryRun: Boolean(opts.dryRun),
       startedAt: now,
+      parentRunId: opts.parentRunId || null,
+      parentStepId: opts.parentStepId || null,
     });
 
   await audit({
@@ -179,7 +219,11 @@ export async function startFlowRun(opts: {
     entity: 'flow_run',
     entityId: runId,
     flowRunId: runId,
-    payload: { dryRun: opts.dryRun, triggerSource: opts.triggerSource },
+    payload: {
+      dryRun: opts.dryRun,
+      triggerSource: opts.triggerSource,
+      parentRunId: opts.parentRunId || null,
+    },
   });
 
   void advanceRun(runId);
@@ -210,13 +254,15 @@ function normalizeNodeType(type: string): string {
 }
 
 const ACTION_TYPES = new Set([
-  'check_image_update', 'pull_image', 'recreate_container', 'compose_up', 'compose_down',
+  'pull_image', 'recreate_container', 'compose_up', 'compose_down',
   'notify', 'webhook', 'wait_approval', 'split', 'join', 'wait_healthy', 'rollback',
 ]);
 
 function defaultOutHandle(type: string): string {
   if (type === 'if') return 'true';
   if (type === 'case') return 'else';
+  if (type === 'check_image_update') return 'update';
+  if (type === 'run_flow') return 'success';
   return 'out';
 }
 
@@ -233,6 +279,22 @@ function normalizeHandleId(
   if (t === 'case') {
     if (handle && handle !== 'out' && handle !== 'ok' && handle !== 'success') return handle;
     return 'else';
+  }
+  if (t === 'check_image_update') {
+    if (handle === 'update' || handle === 'no_update' || handle === 'error') return handle;
+    // legado: único handle out → ramo de update
+    if (!handle || handle === 'out' || handle === 'success' || handle === 'ok') return 'update';
+    return handle;
+  }
+  if (t === 'run_flow') {
+    const wait = data?.wait !== false && data?.wait !== 'false';
+    if (!wait) {
+      if (!handle || handle === 'out' || handle === 'success' || handle === 'ok') return 'out';
+      return handle || 'out';
+    }
+    if (handle === 'success' || handle === 'failed' || handle === 'error') return handle;
+    if (!handle || handle === 'out' || handle === 'ok') return 'success';
+    return handle;
   }
   if (ACTION_TYPES.has(t)) return 'out';
   if (!handle || handle === 'out' || handle === 'success' || handle === 'ok') return 'out';
@@ -258,42 +320,6 @@ function parseCaseWhens(data: Record<string, unknown>): Array<{ id: string; matc
       return { id, match: match || id };
     })
     .filter(Boolean) as Array<{ id: string; match: string }>;
-}
-
-function agentLabelsOf(metaJson: string | null | undefined): string[] {
-  if (!metaJson) return [];
-  try {
-    const meta = JSON.parse(metaJson) as { labels?: unknown };
-    return Array.isArray(meta.labels) ? meta.labels.map(String) : [];
-  } catch {
-    return [];
-  }
-}
-
-function resolveScopedAgents(node: FlowNode): Array<{ id: string; name: string }> {
-  const scope = String(node.data.agentScope || (node.data.agentId ? 'single' : 'all'));
-  const wantLabels = Array.isArray(node.data.agentLabels)
-    ? (node.data.agentLabels as unknown[]).map(String).filter(Boolean)
-    : String(node.data.agentLabels || '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-
-  if (scope === 'single') {
-    const id = String(node.data.agentId || '');
-    return id ? [{ id, name: id }] : [];
-  }
-
-  const rows = agentsRepo.list().filter((a) => agentGateway.isOnline(a.id));
-  if (scope === 'labels' && wantLabels.length) {
-    return rows
-      .filter((a) => {
-        const labels = agentLabelsOf(a.metaJson);
-        return wantLabels.every((l) => labels.includes(l));
-      })
-      .map((a) => ({ id: a.id, name: a.name }));
-  }
-  return rows.map((a) => ({ id: a.id, name: a.name }));
 }
 
 async function upsertStep(runId: string, nodeId: string, branchId: string | null, status: string, patch: Partial<{
@@ -459,10 +485,11 @@ async function advancePinOnFlow(
   let changed = false;
   for (const n of graph.nodes) {
     if (n.type !== 'check_image_update') continue;
+    const sameImageId = ctx.imageId && String(n.data.imageId || '') === String(ctx.imageId);
     const sameContainer =
       String(n.data.containerName || '') === String(recreateNode.data.containerName || ctx.containerName || '')
       || !n.data.containerName;
-    if (!sameContainer && String(n.data.image || '').split(':')[0] !== splitImageRef(appliedImage).repo) {
+    if (!sameImageId && !sameContainer && String(n.data.image || '').split(':')[0] !== splitImageRef(appliedImage).repo) {
       continue;
     }
     n.data = {
@@ -481,18 +508,63 @@ async function advancePinOnFlow(
     rec.data = { ...rec.data, image: appliedImage };
     changed = true;
   }
+  if (changed) {
+    flowsRepo.update(flowId, {
+      graphJson: JSON.stringify(graph),
+      updatedAt: new Date(),
+    });
+  }
+
+  const catalogId = String(ctx.imageId || recreateNode.data.imageId || '').trim();
+  if (catalogId) {
+    const row = imagesRepo.findById(catalogId);
+    if (row && (row.targetMode === 'pin_tag' || Boolean(ctx.advancePinOnSuccess) || Boolean(recreateNode.data.advancePinOnSuccess))) {
+      imagesRepo.update(catalogId, {
+        targetMode: 'pin_tag',
+        targetTag: pin,
+        updatedAt: new Date(),
+      });
+      changed = true;
+    }
+  }
+
   if (!changed) return;
-  flowsRepo.update(flowId, {
-    graphJson: JSON.stringify(graph),
-    updatedAt: new Date(),
-  });
   await audit({
     actor: 'system',
     action: 'flow.target_advanced',
     entity: 'flow',
     entityId: flowId,
-    payload: { pin, image: appliedImage, nodeId: recreateNode.id },
+    payload: { pin, image: appliedImage, nodeId: recreateNode.id, imageId: catalogId || null },
   });
+}
+
+type FlowTarget = {
+  id: string;
+  agentId: string;
+  containerName: string;
+  image?: string;
+  oldDigest?: string;
+  newDigest?: string;
+};
+
+function parseNodeTargets(data: Record<string, unknown>): FlowTarget[] {
+  const raw = data.targets;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((t) => {
+      if (!t || typeof t !== 'object') return null;
+      const row = t as Record<string, unknown>;
+      const agentId = String(row.agentId || '').trim();
+      const containerName = String(row.containerName || '').trim();
+      if (!agentId || !containerName) return null;
+      const id = String(row.id || `${agentId}:${containerName}`);
+      return { id, agentId, containerName };
+    })
+    .filter(Boolean) as FlowTarget[];
+}
+
+function containerLockKey(agentId: string, containerName: string): string {
+  return `container:${agentId}:${containerName}`;
 }
 
 async function resolveNodeImage(
@@ -564,9 +636,22 @@ async function executeNode(
 
       switch (node.type) {
         case 'check_image_update': {
-          const containerName = String(node.data.containerName || ctx.containerName || '');
-          const agents = resolveScopedAgents(node);
-          const catalog = await resolveNodeImage(node.data, ctx, agents[0]?.id);
+          const selected = parseNodeTargets(node.data);
+          if (selected.length === 0) {
+            const msg = 'No containers selected for check';
+            setLastOutcome(ctx, 'error', false);
+            ctx.__nextHandle = 'error';
+            recordNodeFailure(ctx, node, msg);
+            await upsertStep(runId, node.id, branchId, 'failed', {
+              finishedAt: new Date(),
+              lastError: msg,
+              detailJson: detailJson({ error: msg }),
+            });
+            return 'failed';
+          }
+
+          const preferAgent = selected[0]?.agentId;
+          const catalog = await resolveNodeImage(node.data, ctx, preferAgent);
           const auth = getRegistryAuth(catalog.secretId);
           const targetInput = catalog.fromCatalog
             ? {
@@ -574,17 +659,6 @@ async function executeNode(
               targetMode: 'follow_tag' as const,
             }
             : targetInputFromNodeAndCtx(node.data, ctx);
-          const listTagsVia = async (agentId: string) => {
-            const { repo } = splitImageRef(targetInput.image);
-            if (!repo) return [] as string[];
-            const res = await agentGateway.sendCommand(
-              agentId,
-              'image.listTags',
-              { imageRepo: repo, auth },
-              120_000,
-            ) as { tags?: string[] };
-            return res.tags || [];
-          };
 
           let resolved;
           try {
@@ -594,21 +668,31 @@ async function executeNode(
                 imageRef: catalog.image,
                 repo: splitImageRef(catalog.image).repo,
                 selectedTag: splitImageRef(catalog.image).tag,
-                targetTag: null,
-                targetRange: null,
+                targetTag: null as string | null,
+                targetRange: null as string | null,
               };
             } else {
-              const tagAgent = agents[0]?.id;
               resolved = await resolveDesiredImageRef(
                 targetInput,
-                targetInput.targetMode === 'semver_range' && tagAgent
-                  ? () => listTagsVia(tagAgent)
+                targetInput.targetMode === 'semver_range' && preferAgent
+                  ? async () => {
+                    const { repo } = splitImageRef(targetInput.image);
+                    if (!repo) return [] as string[];
+                    const res = await agentGateway.sendCommand(
+                      preferAgent,
+                      'image.listTags',
+                      { imageRepo: repo, auth },
+                      120_000,
+                    ) as { tags?: string[] };
+                    return res.tags || [];
+                  }
                   : undefined,
               );
             }
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             setLastOutcome(ctx, 'error', false);
+            ctx.__nextHandle = 'error';
             recordNodeFailure(ctx, node, msg);
             await upsertStep(runId, node.id, branchId, 'failed', {
               finishedAt: new Date(),
@@ -619,23 +703,36 @@ async function executeNode(
           }
 
           const image = resolved.imageRef;
-          const targets: Array<{
-            agentId: string;
-            containerName: string;
-            image: string;
-            oldDigest: string;
-            newDigest: string;
-          }> = [];
+          const needUpdate: FlowTarget[] = [];
+          const skipped: FlowTarget[] = [];
+          const staleErrors: Array<{ id: string; error: string }> = [];
           let lastErr = '';
 
-          for (const agent of agents) {
+          for (const target of selected) {
+            if (!agentGateway.isOnline(target.agentId)) {
+              staleErrors.push({ id: target.id, error: 'agent offline' });
+              lastErr = 'agent offline';
+              continue;
+            }
             try {
+              // Revalidar: contentor ainda existe
+              const insp = await agentGateway.sendCommand(
+                target.agentId,
+                'docker.inspect',
+                { id: target.containerName },
+              ).catch(() => null);
+              if (!insp) {
+                staleErrors.push({ id: target.id, error: 'container not found' });
+                lastErr = 'container not found';
+                continue;
+              }
+
               const check = await agentGateway.sendCommand(
-                agent.id,
+                target.agentId,
                 'image.checkUpdate',
                 {
-                  id: containerName,
-                  containerId: containerName,
+                  id: target.containerName,
+                  containerId: target.containerName,
                   image,
                   auth,
                 },
@@ -649,69 +746,97 @@ async function executeNode(
                 image?: string;
                 configImage?: string;
               };
-              if (check.updateAvailable) {
-                targets.push({
-                  agentId: agent.id,
-                  containerName,
-                  image: String(check.image || image || ''),
-                  oldDigest: check.localDigests?.[0] || check.imageId || '',
-                  newDigest: check.remoteDigest || '',
-                });
-              }
+              const row: FlowTarget = {
+                ...target,
+                image: String(check.image || image || ''),
+                oldDigest: check.localDigests?.[0] || check.imageId || '',
+                newDigest: check.remoteDigest || '',
+              };
+              if (check.updateAvailable) needUpdate.push(row);
+              else skipped.push(row);
             } catch (err) {
               lastErr = err instanceof Error ? err.message : String(err);
-              logger.warn('check_image_update agent failed', { agentId: agent.id, err: lastErr });
+              logger.warn('check_image_update target failed', {
+                agentId: target.agentId,
+                containerName: target.containerName,
+                err: lastErr,
+              });
+              staleErrors.push({ id: target.id, error: lastErr });
             }
           }
 
-          const updateAvailable = targets.length > 0;
-          const first = targets[0];
+          const allFailed = needUpdate.length === 0 && skipped.length === 0;
+          const updateAvailable = needUpdate.length > 0;
+          const first = needUpdate[0] || skipped[0];
+
           Object.assign(ctx, {
             updateAvailable,
-            targets,
+            targets: needUpdate,
+            skippedTargets: skipped,
+            staleTargets: staleErrors,
             oldDigest: first?.oldDigest || '',
             newDigest: first?.newDigest || '',
             image: first?.image || image,
-            containerName,
-            agentId: first?.agentId || agents[0]?.id || ctx.agentId,
-            secretId: node.data.secretId || ctx.secretId,
+            containerName: first?.containerName || '',
+            agentId: first?.agentId || preferAgent || ctx.agentId,
+            secretId: catalog.secretId || node.data.secretId || ctx.secretId,
+            imageId: catalog.fromCatalog ? (ctx.imageId || node.data.imageId) : ctx.imageId,
             targetMode: resolved.mode,
             targetTag: resolved.targetTag || ctx.targetTag || node.data.targetTag || '',
             targetRange: resolved.targetRange || ctx.targetRange || node.data.targetRange || '',
             currentTag: resolved.selectedTag || '',
+            advancePinOnSuccess: Boolean(node.data.advancePinOnSuccess),
           });
-          if (updateAvailable) {
-            setLastOutcome(ctx, 'update', true);
-          } else if (agents.length === 0 || (lastErr && targets.length === 0 && agents.length > 0)) {
+
+          if (allFailed) {
             setLastOutcome(ctx, 'error', false);
+            ctx.__nextHandle = 'error';
             if (lastErr) recordNodeFailure(ctx, node, lastErr);
+          } else if (updateAvailable) {
+            setLastOutcome(ctx, 'update', true);
+            ctx.__nextHandle = 'update';
           } else {
             setLastOutcome(ctx, 'no_update', false);
+            ctx.__nextHandle = 'no_update';
           }
-          await upsertStep(runId, node.id, branchId, 'success', {
+
+          await upsertStep(runId, node.id, branchId, allFailed ? 'failed' : 'success', {
             finishedAt: new Date(),
+            lastError: allFailed ? (lastErr || 'all targets failed') : null,
             detailJson: detailJson({
-              containerName,
               image,
               targetMode: resolved.mode,
               selectedTag: resolved.selectedTag,
               updateAvailable,
-              targetsCount: targets.length,
-              agentsChecked: agents.length,
+              targetsCount: needUpdate.length,
+              skippedCount: skipped.length,
+              staleCount: staleErrors.length,
+              selectedCount: selected.length,
               oldDigest: first?.oldDigest,
               newDigest: first?.newDigest,
-              reason: updateAvailable ? 'digest_mismatch' : (lastErr || 'up_to_date'),
+              targets: needUpdate,
+              skippedTargets: skipped,
+              staleTargets: staleErrors,
+              reason: allFailed
+                ? (lastErr || 'all_failed')
+                : (updateAvailable ? 'digest_mismatch' : 'up_to_date'),
             }),
           });
           await audit({
             actor: 'system',
-            action: 'flow_node.success',
+            action: allFailed ? 'flow_node.failed' : 'flow_node.success',
             entity: 'flow_node',
             entityId: node.id,
             flowRunId: runId,
-            payload: { type: node.type, attempts, targets: targets.length },
+            payload: {
+              type: node.type,
+              attempts,
+              targets: needUpdate.length,
+              skipped: skipped.length,
+              stale: staleErrors.length,
+            },
           });
-          return 'success';
+          return allFailed ? 'failed' : 'success';
         }
         case 'pull_image': {
           const agentId = String(node.data.agentId || ctx.agentId || '');
@@ -823,27 +948,56 @@ async function executeNode(
         case 'compose_up':
         case 'compose_down': {
           const agentId = String(node.data.agentId || ctx.agentId || '');
+          const composeProjectId = String(node.data.composeProjectId || '').trim();
           const projectPath = String(node.data.projectPath || '').trim();
-          if (!projectPath) {
-            throw new Error(
-              'projectPath is required for Compose nodes. For a standalone container (e.g. redis), use Recreate instead of Compose up.',
-            );
-          }
           const image = ctx.image ? String(ctx.image) : undefined;
-          await agentGateway.sendCommand(agentId, 'docker.compose', {
-            action: node.type === 'compose_up' ? 'up' : 'down',
-            projectPath,
-            ...(node.type === 'compose_up' && image ? { image } : {}),
-          });
-          await upsertStep(runId, node.id, branchId, 'success', {
-            finishedAt: new Date(),
-            detailJson: detailJson({
-              agentId,
-              projectPath,
+
+          if (composeProjectId && node.type === 'compose_up') {
+            if (!agentId) throw new Error('agentId required for compose project deploy');
+            const result = await deployComposeProject(
+              composeProjectId,
+              { agentIds: [agentId], force: true },
+              'system',
+            );
+            const row = result.results?.[0];
+            if (row?.status === 'error') {
+              throw new Error(row.error || 'compose deploy failed');
+            }
+            if (Boolean(node.data.advancePinOnSuccess) || Boolean(ctx.advancePinOnSuccess)) {
+              const runRow = runsRepo.findById(runId);
+              if (runRow && image) await advancePinOnFlow(runRow.flowId, node, image, ctx);
+            }
+            await upsertStep(runId, node.id, branchId, 'success', {
+              finishedAt: new Date(),
+              detailJson: detailJson({
+                agentId,
+                composeProjectId,
+                action: 'up',
+                image,
+                skipped: Boolean(row?.skipped),
+              }),
+            });
+          } else {
+            if (!projectPath) {
+              throw new Error(
+                'projectPath or composeProjectId is required for Compose nodes. For a standalone container, use Recreate instead of Compose up.',
+              );
+            }
+            await agentGateway.sendCommand(agentId, 'docker.compose', {
               action: node.type === 'compose_up' ? 'up' : 'down',
-              image,
-            }),
-          });
+              projectPath,
+              ...(node.type === 'compose_up' && image ? { image } : {}),
+            });
+            await upsertStep(runId, node.id, branchId, 'success', {
+              finishedAt: new Date(),
+              detailJson: detailJson({
+                agentId,
+                projectPath,
+                action: node.type === 'compose_up' ? 'up' : 'down',
+                image,
+              }),
+            });
+          }
           await audit({
             actor: 'system',
             action: 'flow_node.success',
@@ -1006,6 +1160,12 @@ async function executeNode(
               templateKey: templateKey || undefined,
               image: ctx.image ? String(ctx.image) : undefined,
               containerName: ctx.containerName ? String(ctx.containerName) : undefined,
+              targets: Array.isArray(ctx.targets) ? ctx.targets : undefined,
+              skippedTargets: Array.isArray(ctx.skippedTargets) ? ctx.skippedTargets : undefined,
+              targetsCount: Array.isArray(ctx.targets) ? (ctx.targets as unknown[]).length : undefined,
+              skippedTargetsCount: Array.isArray(ctx.skippedTargets)
+                ? (ctx.skippedTargets as unknown[]).length
+                : undefined,
               oldDigest: ctx.oldDigest ? String(ctx.oldDigest) : undefined,
               newDigest: ctx.newDigest ? String(ctx.newDigest) : undefined,
               updateAvailable: ctx.updateAvailable != null ? Boolean(ctx.updateAvailable) : undefined,
@@ -1176,6 +1336,129 @@ async function executeNode(
           });
           return 'success';
         }
+        case 'run_flow': {
+          const childFlowId = String(node.data.flowId || '').trim();
+          if (!childFlowId) throw new Error('flowId is required for run_flow');
+          if (childFlowId === String(ctx.flowId || '')) {
+            throw new Error('run_flow cannot call the same flow (cycle)');
+          }
+          const wait = node.data.wait !== false && node.data.wait !== 'false';
+          const stepId = await upsertStep(runId, node.id, branchId, 'running', {
+            startedAt: new Date(),
+            detailJson: detailJson({ flowId: childFlowId, wait }),
+          });
+
+          const childCtx: RunContext = {
+            image: ctx.image,
+            imageId: ctx.imageId,
+            agentId: ctx.agentId,
+            containerName: ctx.containerName,
+            secretId: ctx.secretId,
+            targets: ctx.targets,
+            skippedTargets: ctx.skippedTargets,
+            oldDigest: ctx.oldDigest,
+            newDigest: ctx.newDigest,
+            targetMode: ctx.targetMode,
+            targetTag: ctx.targetTag,
+            currentTag: ctx.currentTag,
+          };
+
+          let childRunId: string;
+          try {
+            childRunId = await startFlowRun({
+              flowId: childFlowId,
+              triggerSource: 'subflow',
+              context: childCtx,
+              dryRun,
+              actor: 'system',
+              parentRunId: runId,
+              parentStepId: stepId,
+              lockKey: `flow:${childFlowId}:parent:${runId}:${node.id}`,
+            });
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            setLastOutcome(ctx, 'error', false);
+            ctx.__nextHandle = wait ? 'error' : 'out';
+            recordNodeFailure(ctx, node, msg);
+            await upsertStep(runId, node.id, branchId, 'failed', {
+              finishedAt: new Date(),
+              lastError: msg,
+              detailJson: detailJson({ flowId: childFlowId, wait, error: msg }),
+            });
+            return wait ? 'failed' : 'success';
+          }
+
+          ctx.childRunId = childRunId;
+
+          if (!wait) {
+            setLastOutcome(ctx, 'ok', true);
+            ctx.__nextHandle = 'out';
+            await upsertStep(runId, node.id, branchId, 'success', {
+              finishedAt: new Date(),
+              detailJson: detailJson({ flowId: childFlowId, childRunId, wait: false }),
+            });
+            await audit({
+              actor: 'system',
+              action: 'flow_node.success',
+              entity: 'flow_node',
+              entityId: node.id,
+              flowRunId: runId,
+              payload: { type: node.type, attempts, childRunId, wait: false },
+            });
+            return 'success';
+          }
+
+          // Esperar o filho terminar
+          const terminal = new Set(['success', 'failed', 'aborted', 'rejected']);
+          const deadline = Date.now() + Number(node.data.timeoutMs || 30 * 60_000);
+          let childStatus = 'running';
+          while (Date.now() < deadline) {
+            const child = runsRepo.findById(childRunId);
+            childStatus = child?.status || 'failed';
+            if (terminal.has(childStatus)) break;
+            await new Promise((r) => setTimeout(r, 1000));
+          }
+          if (!terminal.has(childStatus)) {
+            childStatus = 'failed';
+            setLastOutcome(ctx, 'error', false);
+            ctx.__nextHandle = 'error';
+            await upsertStep(runId, node.id, branchId, 'failed', {
+              finishedAt: new Date(),
+              lastError: 'child run timeout',
+              detailJson: detailJson({ flowId: childFlowId, childRunId, wait: true, status: childStatus }),
+            });
+            return 'failed';
+          }
+
+          if (childStatus === 'success') {
+            setLastOutcome(ctx, 'ok', true);
+            ctx.__nextHandle = 'success';
+            await upsertStep(runId, node.id, branchId, 'success', {
+              finishedAt: new Date(),
+              detailJson: detailJson({ flowId: childFlowId, childRunId, wait: true, status: childStatus }),
+            });
+            return 'success';
+          }
+          if (childStatus === 'rejected') {
+            setLastOutcome(ctx, 'failed', false);
+            ctx.__nextHandle = 'failed';
+            setRunOutcome(ctx, 'rejected');
+            await upsertStep(runId, node.id, branchId, 'failed', {
+              finishedAt: new Date(),
+              lastError: 'child run rejected',
+              detailJson: detailJson({ flowId: childFlowId, childRunId, wait: true, status: childStatus }),
+            });
+            return 'success'; // pai continua pelo handle failed
+          }
+          setLastOutcome(ctx, 'failed', false);
+          ctx.__nextHandle = 'failed';
+          await upsertStep(runId, node.id, branchId, 'failed', {
+            finishedAt: new Date(),
+            lastError: `child run ${childStatus}`,
+            detailJson: detailJson({ flowId: childFlowId, childRunId, wait: true, status: childStatus }),
+          });
+          return 'success'; // pai continua pelo handle failed
+        }
         case 'split':
         case 'join':
           // handled by advanceRun orchestration
@@ -1277,7 +1560,7 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
           fromContext && Array.isArray(ctx.targets)
             ? ctx.targets
             : (node.data.targets || [])
-        ) as Array<{ agentId: string; containerName?: string; image?: string }>;
+        ) as Array<{ agentId: string; containerName?: string; image?: string; oldDigest?: string; newDigest?: string }>;
         const branchNodes = nextNodes(graph, node.id, 'out');
         const findJoin = (): FlowNode | undefined => {
           const q = [...branchNodes];
@@ -1318,33 +1601,53 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
         });
 
         await Promise.all(branches.map(async (b) => {
-          const bctx: RunContext = {
-            ...ctx,
-            agentId: b.agentId,
-            containerName: b.containerName,
-            image: b.image || ctx.image,
-          };
-          let path = branchNodes.filter((n) => n.type !== 'join');
-          const localVisited = new Set<string>();
-          while (path.length) {
-            const n = path.shift()!;
-            if (n.type === 'join') break;
-            if (localVisited.has(n.id)) continue;
-            localVisited.add(n.id);
-            const r = await executeNode(runId, n, bctx, b.id, dryRun);
-            if (r === 'failed') {
-              setLastOutcome(bctx, 'error', false);
-              runsRepo.updateBranch(b.id, { status: 'failed', contextJson: JSON.stringify(bctx) });
-              return;
-            }
-            const h = bctx.__nextHandle !== undefined
-              ? String(bctx.__nextHandle)
-              : 'out';
-            delete bctx.__nextHandle;
-            path.push(...nextNodes(graph, n.id, h).filter((x) => x.type !== 'join'));
+          const lockKey = b.containerName
+            ? containerLockKey(b.agentId, b.containerName)
+            : null;
+          if (lockKey && !tryAcquireContainerLock(lockKey, runId)) {
+            runsRepo.updateBranch(b.id, {
+              status: 'failed',
+              contextJson: JSON.stringify({
+                ...ctx,
+                error: 'container locked by another run',
+              }),
+            });
+            return;
           }
-          setLastOutcome(bctx, 'ok', true);
-          runsRepo.updateBranch(b.id, { status: 'success', contextJson: JSON.stringify(bctx) });
+
+          try {
+            const bctx: RunContext = {
+              ...ctx,
+              agentId: b.agentId,
+              containerName: b.containerName,
+              image: b.image || ctx.image,
+              oldDigest: b.oldDigest || ctx.oldDigest,
+              newDigest: b.newDigest || ctx.newDigest,
+            };
+            let path = branchNodes.filter((n) => n.type !== 'join');
+            const localVisited = new Set<string>();
+            while (path.length) {
+              const n = path.shift()!;
+              if (n.type === 'join') break;
+              if (localVisited.has(n.id)) continue;
+              localVisited.add(n.id);
+              const r = await executeNode(runId, n, bctx, b.id, dryRun);
+              if (r === 'failed') {
+                setLastOutcome(bctx, 'error', false);
+                runsRepo.updateBranch(b.id, { status: 'failed', contextJson: JSON.stringify(bctx) });
+                return;
+              }
+              const h = bctx.__nextHandle !== undefined
+                ? String(bctx.__nextHandle)
+                : 'out';
+              delete bctx.__nextHandle;
+              path.push(...nextNodes(graph, n.id, h).filter((x) => x.type !== 'join'));
+            }
+            setLastOutcome(bctx, 'ok', true);
+            runsRepo.updateBranch(b.id, { status: 'success', contextJson: JSON.stringify(bctx) });
+          } finally {
+            if (lockKey) releaseContainerLock(lockKey, runId);
+          }
         }));
 
         const allBranches = runsRepo.branchesBySplit(runId, node.id);
@@ -1370,15 +1673,35 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
             const ok = allBranches.filter((b) => b.status === 'success').map((b) => b.id);
             ctx.selectedBranchIds = ok;
             setLastOutcome(ctx, ok.length > 0 ? 'ok' : 'failed', ok.length > 0);
+            if (ok.length === 0) setRunOutcome(ctx, 'failed');
+          } else if (anyFailed) {
+            setLastOutcome(ctx, 'failed', false);
+            setRunOutcome(ctx, 'failed');
+            await upsertStep(runId, join.id, null, 'failed', {
+              finishedAt: new Date(),
+              detailJson: detailJson({ mode, branchResults: ctx.branchResults }),
+            });
+            runsRepo.update(runId, {
+              status: 'failed',
+              finishedAt: new Date(),
+              currentNodeId: null,
+              contextJson: JSON.stringify(ctx),
+            });
+            return;
           } else {
-            // wait_all
-            setLastOutcome(ctx, anyFailed ? 'failed' : 'ok', !anyFailed);
-            if (anyFailed) setRunOutcome(ctx, 'failed');
+            setLastOutcome(ctx, 'ok', true);
           }
-          await upsertStep(runId, join.id, null, 'success', { finishedAt: new Date() });
+
+          // Avançar pin no catálogo após lote com sucesso
+          if (!anyFailed && Boolean(ctx.advancePinOnSuccess) && ctx.image) {
+            await advancePinOnFlow(run.flowId, node, String(ctx.image), ctx);
+          }
+
+          await upsertStep(runId, join.id, null, 'success', {
+            finishedAt: new Date(),
+            detailJson: detailJson({ mode, branchResults: ctx.branchResults }),
+          });
           queue.push(...nextNodes(graph, join.id, 'out'));
-        } else {
-          setLastOutcome(ctx, 'ok', true);
         }
         continue;
       }
@@ -1396,7 +1719,11 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
         if (!SIDE_EFFECT_NODE_TYPES.has(node.type)) {
           setRunOutcome(ctx, 'failed');
         }
-        const outNext = nextNodes(graph, node.id, 'out');
+        const failHandle = ctx.__nextHandle !== undefined
+          ? String(ctx.__nextHandle)
+          : 'out';
+        delete ctx.__nextHandle;
+        const outNext = nextNodes(graph, node.id, failHandle);
         if (outNext.length) {
           queue.push(...outNext);
           continue;

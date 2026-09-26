@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Edge, Node } from '@xyflow/react';
 import { api } from '@/lib/api';
+import { Modal, Button } from '@/components/ui';
 import {
   TEMPLATE_TAGS,
   getCaseFieldsForPrev,
@@ -83,7 +84,6 @@ const AGENT_NODES = [
 ];
 
 const CONTAINER_NODES = [
-  'check_image_update',
   'recreate_container',
   'wait_healthy',
   'rollback',
@@ -91,20 +91,47 @@ const CONTAINER_NODES = [
 
 const CATALOG_IMAGE_NODES = ['pull_image', 'check_image_update'];
 
+type FlowTarget = { id: string; agentId: string; containerName: string };
+
+type RunningContainersPayload = {
+  imageId: string;
+  repository: string;
+  agents: Array<{
+    agentId: string;
+    agentName: string;
+    online: boolean;
+    containers: Array<{
+      name: string;
+      image: string;
+      composeProject?: string | null;
+      composeService?: string | null;
+    }>;
+  }>;
+};
+
 type CatalogImage = {
   id: string;
   key: string;
   name: string;
   repository: string;
 };
+
+type ComposeProject = { id: string; name: string };
+type FlowOpt = { id: string; name: string };
 export function NodeInspector({ selectedNode, nodes = [], edges = [], onPatch }: Props) {
   const { t } = useI18n();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [secrets, setSecrets] = useState<SecretMeta[]>([]);
   const [catalogImages, setCatalogImages] = useState<CatalogImage[]>([]);
+  const [composeProjects, setComposeProjects] = useState<ComposeProject[]>([]);
+  const [flows, setFlows] = useState<FlowOpt[]>([]);
   const [templates, setTemplates] = useState<Array<{ id: string; key: string; name: string; body: string }>>([]);
   const [containers, setContainers] = useState<ContainerRow[]>([]);
   const [loadingContainers, setLoadingContainers] = useState(false);
+  const [targetsModalOpen, setTargetsModalOpen] = useState(false);
+  const [runningTree, setRunningTree] = useState<RunningContainersPayload | null>(null);
+  const [loadingRunning, setLoadingRunning] = useState(false);
+  const [draftTargetIds, setDraftTargetIds] = useState<Set<string>>(new Set());
 
   const previousNode = useMemo(() => {
     if (!selectedNode) return null;
@@ -116,16 +143,20 @@ export function NodeInspector({ selectedNode, nodes = [], edges = [], onPatch }:
   useEffect(() => {
     void (async () => {
       try {
-        const [a, s, tpl, imgs] = await Promise.all([
+        const [a, s, tpl, imgs, cps, fl] = await Promise.all([
           api<Agent[]>('/agents'),
           api<SecretMeta[]>('/secrets'),
           api<Array<{ id: string; key: string; name: string; body: string }>>('/templates'),
           api<CatalogImage[]>('/docker-images'),
+          api<ComposeProject[]>('/compose-projects').catch(() => [] as ComposeProject[]),
+          api<FlowOpt[]>('/flows').catch(() => [] as FlowOpt[]),
         ]);
         setAgents(a);
         setSecrets(s);
         setTemplates(tpl);
         setCatalogImages(imgs);
+        setComposeProjects(Array.isArray(cps) ? cps : []);
+        setFlows(Array.isArray(fl) ? fl.map((f) => ({ id: f.id, name: f.name })) : []);
       } catch {
         /* keep empty */
       }
@@ -239,6 +270,63 @@ export function NodeInspector({ selectedNode, nodes = [], edges = [], onPatch }:
     return v === key ? portId : v;
   };
 
+  const selectedTargets = (Array.isArray(selectedNode.data.targets)
+    ? selectedNode.data.targets
+    : []) as FlowTarget[];
+
+  async function loadRunningContainers(imageId: string) {
+    if (!imageId) {
+      setRunningTree(null);
+      return;
+    }
+    setLoadingRunning(true);
+    try {
+      const data = await api<RunningContainersPayload>(`/docker-images/${imageId}/running-containers`);
+      setRunningTree(data);
+    } catch {
+      setRunningTree(null);
+    } finally {
+      setLoadingRunning(false);
+    }
+  }
+
+  function openTargetsModal() {
+    const imageId = String(selectedNode!.data.imageId || '');
+    const current = (Array.isArray(selectedNode!.data.targets)
+      ? selectedNode!.data.targets
+      : []) as FlowTarget[];
+    setDraftTargetIds(new Set(current.map((t) => t.id || `${t.agentId}:${t.containerName}`)));
+    setTargetsModalOpen(true);
+    void loadRunningContainers(imageId);
+  }
+
+  function toggleDraftTarget(id: string) {
+    setDraftTargetIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function applyDraftTargets() {
+    if (!runningTree) {
+      setTargetsModalOpen(false);
+      return;
+    }
+    const next: FlowTarget[] = [];
+    for (const ag of runningTree.agents) {
+      for (const c of ag.containers) {
+        const tid = `${ag.agentId}:${c.name}`;
+        if (draftTargetIds.has(tid)) {
+          next.push({ id: tid, agentId: ag.agentId, containerName: c.name });
+        }
+      }
+    }
+    onPatch(id, { targets: next });
+    setTargetsModalOpen(false);
+  }
+
   function field(key: string, label: string, placeholder?: string) {
     return (
       <label key={key}>
@@ -348,6 +436,7 @@ export function NodeInspector({ selectedNode, nodes = [], edges = [], onPatch }:
   }
 
   return (
+    <>
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
       <div>{t('inspector.type')}: {tt(t, 'nodes', type)}</div>
       <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12, lineHeight: 1.4 }}>
@@ -458,7 +547,22 @@ export function NodeInspector({ selectedNode, nodes = [], edges = [], onPatch }:
         />
       )}
 
-      {['compose_up', 'compose_down'].includes(type) && field('projectPath', t('inspector.projectPath'), '/path/to/compose')}
+      {['compose_up', 'compose_down'].includes(type) && (
+        <>
+          <SearchSelect
+            label={t('inspector.composeProject')}
+            value={String(selectedNode.data.composeProjectId || '')}
+            options={composeProjects.map((p) => ({ value: p.id, label: p.name }))}
+            onChange={(v) => patch('composeProjectId', v)}
+            placeholder={t('inspector.searchComposeProject')}
+            emptyLabel={t('common.none')}
+          />
+          {field('projectPath', t('inspector.projectPath'), '/path/to/compose')}
+          <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+            {t('inspector.composeInheritHint')}
+          </div>
+        </>
+      )}
 
       {type === 'wait_healthy' && (
         <>
@@ -490,31 +594,69 @@ export function NodeInspector({ selectedNode, nodes = [], edges = [], onPatch }:
 
       {type === 'check_image_update' && (
         <>
-          <label>
-            {t('inspector.agentScope')}
-            <select
-              style={inputStyle}
-              value={String(selectedNode.data.agentScope || 'all')}
-              onChange={(e) => patch('agentScope', e.target.value)}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+              {selectedTargets.length
+                ? t('inspector.targetsSelected', { count: selectedTargets.length })
+                : t('inspector.targetsNone')}
+            </div>
+            {selectedTargets.length > 0 && (
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, maxHeight: 120, overflow: 'auto' }}>
+                {selectedTargets.map((tg) => {
+                  const agentName = agents.find((a) => a.id === tg.agentId)?.name || tg.agentId.slice(0, 8);
+                  return (
+                    <li key={tg.id || `${tg.agentId}:${tg.containerName}`}>
+                      {tg.containerName} @ {agentName}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            <button
+              type="button"
+              style={{ ...inputStyle, marginTop: 0, cursor: 'pointer' }}
+              disabled={!catalogImageId}
+              onClick={() => openTargetsModal()}
             >
-              <option value="all">{t('inspector.scopeAll')}</option>
-              <option value="labels">{t('inspector.scopeLabels')}</option>
-              <option value="single">{t('inspector.scopeSingle')}</option>
-            </select>
+              {t('inspector.selectContainers')}
+            </button>
+            {!catalogImageId && (
+              <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                {t('inspector.pickCatalogImageFirst')}
+              </div>
+            )}
+          </div>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input
+              type="checkbox"
+              checked={Boolean(selectedNode.data.advancePinOnSuccess)}
+              onChange={(e) => patch('advancePinOnSuccess', e.target.checked)}
+            />
+            {t('inspector.advancePinOnSuccess')}
           </label>
-          {String(selectedNode.data.agentScope || '') === 'labels' && (
-            field('agentLabels', t('inspector.agentLabels'), 'prod, eu-west')
-          )}
+        </>
+      )}
+
+      {type === 'run_flow' && (
+        <>
           <SearchSelect
-            label={String(selectedNode.data.agentScope) === 'single'
-              ? t('inspector.agent')
-              : t('inspector.browseAgent')}
-            value={agentId}
-            options={agentOptions}
-            onChange={(v) => onPatch(id, { agentId: v, containerName: '' })}
-            placeholder={t('inspector.searchAgent')}
-            emptyLabel={t('inspector.selectAgent')}
+            label={t('inspector.subflow')}
+            value={String(selectedNode.data.flowId || '')}
+            options={flows
+              .filter((f) => true)
+              .map((f) => ({ value: f.id, label: f.name }))}
+            onChange={(v) => patch('flowId', v)}
+            placeholder={t('inspector.searchFlow')}
+            emptyLabel={t('inspector.selectFlow')}
           />
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input
+              type="checkbox"
+              checked={selectedNode.data.wait !== false && selectedNode.data.wait !== 'false'}
+              onChange={(e) => patch('wait', e.target.checked)}
+            />
+            {t('inspector.waitSubflow')}
+          </label>
         </>
       )}
 
@@ -755,5 +897,79 @@ export function NodeInspector({ selectedNode, nodes = [], edges = [], onPatch }:
         </label>
       )}
     </div>
+
+    <Modal
+      open={targetsModalOpen}
+      onClose={() => setTargetsModalOpen(false)}
+      title={t('inspector.selectContainers')}
+      footer={(
+        <>
+          <Button variant="ghost" onClick={() => setTargetsModalOpen(false)}>{t('common.cancel')}</Button>
+          <Button onClick={() => applyDraftTargets()}>{t('common.apply')}</Button>
+        </>
+      )}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '60vh', overflow: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+            {runningTree?.repository || ''}
+          </span>
+          <Button
+            variant="ghost"
+            disabled={!catalogImageId || loadingRunning}
+            onClick={() => void loadRunningContainers(catalogImageId)}
+          >
+            {t('common.refresh')}
+          </Button>
+        </div>
+        {loadingRunning && (
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>{t('common.loading')}</div>
+        )}
+        {!loadingRunning && runningTree && runningTree.agents.length === 0 && (
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>{t('inspector.noRunningContainers')}</div>
+        )}
+        {!loadingRunning && runningTree?.agents.map((ag) => (
+          <div key={ag.agentId} style={{ borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
+              {ag.agentName}
+              {!ag.online && (
+                <span style={{ marginLeft: 8, color: 'var(--muted)', fontWeight: 400 }}>
+                  ({t('agents.offline')})
+                </span>
+              )}
+            </div>
+            {ag.containers.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>{t('inspector.noContainersOnAgent')}</div>
+            ) : (
+              ag.containers.map((c) => {
+                const tid = `${ag.agentId}:${c.name}`;
+                return (
+                  <label
+                    key={tid}
+                    style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, marginBottom: 4 }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={draftTargetIds.has(tid)}
+                      onChange={() => toggleDraftTarget(tid)}
+                      disabled={!ag.online}
+                    />
+                    <span>
+                      <strong>{c.name}</strong>
+                      <span style={{ display: 'block', color: 'var(--muted)', fontSize: 11 }}>
+                        {[c.image, c.composeProject && c.composeService
+                          ? `${c.composeProject}/${c.composeService}`
+                          : null].filter(Boolean).join(' · ')}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })
+            )}
+          </div>
+        ))}
+      </div>
+    </Modal>
+    </>
   );
 }

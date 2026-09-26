@@ -116,6 +116,7 @@ export default function ImagesPage() {
 
   function openCreate() {
     resetForm();
+    setTargetTag('latest');
     setMode('create');
   }
 
@@ -126,7 +127,7 @@ export default function ImagesPage() {
     setName(r.name);
     setRepository(r.repository);
     setTargetMode((r.targetMode as TargetMode) || 'follow_tag');
-    setTargetTag(r.targetTag || '');
+    setTargetTag(r.targetTag || (r.targetMode === 'follow_tag' ? 'latest' : ''));
     setTargetRange(r.targetRange || '');
     setAllowPrerelease(Boolean(r.allowPrerelease));
     setSecretId(r.secretId || '');
@@ -145,20 +146,24 @@ export default function ImagesPage() {
       setFormError(t('images.requiredFields'));
       return;
     }
-    if (targetMode === 'pin_tag' && !targetTag.trim()) {
-      setFormError(t('images.pinRequired'));
+    if ((targetMode === 'pin_tag' || targetMode === 'follow_tag') && !targetTag.trim()) {
+      setFormError(targetMode === 'pin_tag' ? t('images.pinRequired') : t('images.followTagRequired'));
       return;
     }
     if (targetMode === 'semver_range' && !targetRange.trim()) {
       setFormError(t('images.rangeRequired'));
       return;
     }
+    // Repositório sem tag — a tag vive em targetTag (follow/pin)
+    const repoOnly = repository.trim().replace(/[@:].*$/, '');
     const body = {
       key: key.trim(),
       name: name.trim(),
-      repository: repository.trim(),
+      repository: repoOnly,
       targetMode,
-      targetTag: targetMode === 'pin_tag' ? targetTag.trim() : null,
+      targetTag: (targetMode === 'pin_tag' || targetMode === 'follow_tag')
+        ? targetTag.trim()
+        : null,
       targetRange: targetMode === 'semver_range' ? targetRange.trim() : null,
       allowPrerelease: targetMode === 'semver_range' ? allowPrerelease : false,
       secretId: secretId || null,
@@ -217,7 +222,13 @@ export default function ImagesPage() {
               <div className="sd-secret-main">
                 <strong className="sd-secret-name">{r.name}</strong>
                 <span className="sd-chip">{`\${${r.placeholder}}`}</span>
-                <span className="sd-chip sd-chip-muted">{r.repository}</span>
+                <span className="sd-chip sd-chip-muted">
+                  {r.targetMode === 'semver_range' && r.targetRange
+                    ? `${r.repository} (${r.targetRange})`
+                    : r.targetTag
+                      ? `${r.repository}:${r.targetTag}`
+                      : r.repository}
+                </span>
                 <span className="sd-chip sd-chip-muted">{modeLabel(r.targetMode)}</span>
               </div>
               <div className="sd-entity-actions">
@@ -279,17 +290,41 @@ export default function ImagesPage() {
             <select
               className="sd-input"
               value={targetMode}
-              onChange={(e) => setTargetMode(e.target.value as TargetMode)}
+              onChange={(e) => {
+                const next = e.target.value as TargetMode;
+                setTargetMode(next);
+                if (next === 'follow_tag' && !targetTag.trim()) setTargetTag('latest');
+              }}
             >
               <option value="follow_tag">{t('images.modeFollow')}</option>
               <option value="pin_tag">{t('images.modePin')}</option>
               <option value="semver_range">{t('images.modeSemver')}</option>
             </select>
           </Field>
+          {targetMode === 'follow_tag' ? (
+            <>
+              <Field label={t('images.followTag')}>
+                <Input
+                  value={targetTag}
+                  placeholder="latest"
+                  onChange={(e) => setTargetTag(e.target.value)}
+                  autoComplete="off"
+                />
+              </Field>
+              <div style={{ fontSize: 12, color: 'var(--sd-muted)' }}>
+                {t('images.followTagHint')}
+              </div>
+            </>
+          ) : null}
           {targetMode === 'pin_tag' ? (
-            <Field label={t('images.targetTag')}>
-              <Input value={targetTag} placeholder="1.2.0" onChange={(e) => setTargetTag(e.target.value)} />
-            </Field>
+            <>
+              <Field label={t('images.targetTag')}>
+                <Input value={targetTag} placeholder="1.2.0" onChange={(e) => setTargetTag(e.target.value)} />
+              </Field>
+              <div style={{ fontSize: 12, color: 'var(--sd-muted)' }}>
+                {t('images.pinTagHint')}
+              </div>
+            </>
           ) : null}
           {targetMode === 'semver_range' ? (
             <>

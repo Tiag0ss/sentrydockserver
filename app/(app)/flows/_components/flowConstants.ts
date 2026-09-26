@@ -13,6 +13,7 @@ export const NODE_TYPES_LIST = [
   { type: 'join' },
   { type: 'wait_healthy' },
   { type: 'rollback' },
+  { type: 'run_flow' },
 ] as const;
 
 export type NodePort = { id: string };
@@ -21,7 +22,6 @@ const OUT: NodePort[] = [{ id: 'out' }];
 
 /** Tipos de acção: uma saída; o resultado vai para o contexto. */
 export const ACTION_NODE_TYPES = new Set([
-  'check_image_update',
   'pull_image',
   'recreate_container',
   'compose_up',
@@ -35,9 +35,9 @@ export const ACTION_NODE_TYPES = new Set([
   'rollback',
 ]);
 
-/** Saídas estáticas (CASE é dinâmico via data.cases). */
+/** Saídas estáticas (CASE é dinâmico via data.cases; run_flow depende de wait). */
 export const NODE_OUTPUTS: Record<string, NodePort[]> = {
-  check_image_update: OUT,
+  check_image_update: [{ id: 'update' }, { id: 'no_update' }, { id: 'error' }],
   pull_image: OUT,
   recreate_container: OUT,
   compose_up: OUT,
@@ -52,6 +52,7 @@ export const NODE_OUTPUTS: Record<string, NodePort[]> = {
   join: OUT,
   wait_healthy: OUT,
   rollback: OUT,
+  run_flow: [{ id: 'success' }, { id: 'failed' }, { id: 'error' }],
 };
 
 export type CaseWhen = { id: string; match: string };
@@ -80,10 +81,16 @@ export function getNodeOutputs(
     const whens = getCaseWhens(data);
     return [...whens.map((w) => ({ id: w.id })), { id: 'else' }];
   }
+  if (normalized === 'run_flow') {
+    const wait = data?.wait !== false && data?.wait !== 'false';
+    return wait
+      ? [{ id: 'success' }, { id: 'failed' }, { id: 'error' }]
+      : OUT;
+  }
   return NODE_OUTPUTS[normalized] || OUT;
 }
 
-/** Normaliza handles antigos para o modelo out / IF / CASE. */
+/** Normaliza handles antigos para o modelo out / IF / CASE / check / run_flow. */
 export function normalizeHandle(
   type: string,
   handle: string | null | undefined,
@@ -93,6 +100,14 @@ export function normalizeHandle(
   const outputs = getNodeOutputs(normalized, data);
   const ids = new Set(outputs.map((o) => o.id));
   if (handle && ids.has(handle)) return handle;
+  if (normalized === 'check_image_update') {
+    if (!handle || handle === 'out' || handle === 'success' || handle === 'ok') return 'update';
+  }
+  if (normalized === 'run_flow') {
+    const wait = data?.wait !== false && data?.wait !== 'false';
+    if (!wait) return 'out';
+    if (!handle || handle === 'out' || handle === 'ok') return 'success';
+  }
   if (ACTION_NODE_TYPES.has(normalized)) return 'out';
   if (!handle || handle === 'out' || handle === 'success' || handle === 'ok') {
     return outputs[0]?.id || 'out';
@@ -161,6 +176,10 @@ export const NODE_BRANCH_FIELDS: Record<string, NodeBranchField[]> = {
   rollback: OK_ERROR,
   webhook: OK_ERROR,
   split: OK_ERROR,
+  run_flow: [
+    { field: 'lastResult', kind: 'bool' },
+    { field: 'lastOutcome', kind: 'enum', values: ['ok', 'failed', 'error'] },
+  ],
   notify: [{ field: 'lastResult', kind: 'bool' }],
   if: [
     { field: 'lastResult', kind: 'bool' },
@@ -222,10 +241,15 @@ export const TEMPLATE_TAGS = [
   'currentTag',
   'targetMode',
   'targetRange',
+  'targetsList',
+  'targetsCount',
+  'skippedTargetsList',
+  'skippedTargetsCount',
   'runId',
   'flowId',
   'flowName',
   'nodeName',
+  'childRunId',
 ] as const;
 
 export const inputStyle: React.CSSProperties = {

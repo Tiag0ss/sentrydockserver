@@ -144,6 +144,10 @@ apiRouter.get('/flows', authRequired, requirePasswordOk, (_req, res) => {
   res.json(flowsService.listFlows());
 });
 
+apiRouter.get('/flows/:id', authRequired, requirePasswordOk, (req, res) => {
+  res.json(flowsService.getFlow(param(req)));
+});
+
 apiRouter.post('/flows', authRequired, requirePasswordOk, requireModify, validateBody(createFlowSchema), asyncHandler(async (req, res) => {
   const result = await flowsService.createFlow(req.body, req.user!.username);
   res.status(201).json(result);
@@ -367,9 +371,17 @@ apiRouter.post('/compose-projects/:id/check', authRequired, requirePasswordOk, r
   res.json(await composeService.checkComposeProject(param(req), req.body.agentIds));
 }));
 
+apiRouter.post('/compose-projects/:id/create-update-flow', authRequired, requirePasswordOk, requireModify, asyncHandler(async (req, res) => {
+  res.json(await composeService.createUpdateFlowFromCompose(param(req), req.user!.username));
+}));
+
 apiRouter.get('/docker-images', authRequired, requirePasswordOk, (_req, res) => {
   res.json(imagesService.listDockerImages());
 });
+
+apiRouter.get('/docker-images/:id/running-containers', authRequired, requirePasswordOk, asyncHandler(async (req, res) => {
+  res.json(await imagesService.listRunningContainersForImage(param(req)));
+}));
 
 apiRouter.post('/docker-images/sync', authRequired, requirePasswordOk, requireModify, asyncHandler(async (req, res) => {
   const agentIds = Array.isArray(req.body?.agentIds) ? req.body.agentIds.map(String) : undefined;

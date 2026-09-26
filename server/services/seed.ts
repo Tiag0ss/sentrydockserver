@@ -9,13 +9,14 @@ const BUILTIN_TEMPLATES = [
   { key: 'update_success', name: 'Actualizado com sucesso', body: JSON.stringify({ text: 'Successfully updated {{containerName}} on {{agentName}} to {{newDigest}}' }) },
   { key: 'flow_started', name: 'Flow iniciado', body: JSON.stringify({ text: 'Flow {{flowName}} started (run {{runId}})' }) },
   { key: 'flow_interrupted', name: 'Flow interrompido', body: JSON.stringify({ text: 'Flow {{flowName}} interrupted at {{nodeName}}, resuming…' }) },
-  { key: 'awaiting_approval', name: 'Aguarda aprovação', body: JSON.stringify({ text: 'Update for {{containerName}} awaits approval' }) },
+  { key: 'awaiting_approval', name: 'Aguarda aprovação', body: JSON.stringify({ text: 'Update for {{targetsCount}} container(s): {{targetsList}} awaits approval. Already up to date (skipped): {{skippedTargetsList}}' }) },
 ];
 
 export async function seedDatabase() {
   const now = new Date();
   for (const t of BUILTIN_TEMPLATES) {
-    if (!templatesRepo.findByKey(t.key)) {
+    const existing = templatesRepo.findByKey(t.key);
+    if (!existing) {
       templatesRepo.insert({
         id: uuid(),
         key: t.key,
@@ -24,6 +25,8 @@ export async function seedDatabase() {
         builtin: true,
         createdAt: now,
       });
+    } else if (existing.builtin && t.key === 'awaiting_approval') {
+      templatesRepo.update(existing.id, { body: t.body, name: t.name });
     }
   }
 

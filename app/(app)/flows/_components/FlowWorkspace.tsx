@@ -124,7 +124,20 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
   const [blackoutStart, setBlackoutStart] = useState(normalizeBlackoutTime(initial?.blackoutStart || ''));
   const [blackoutEnd, setBlackoutEnd] = useState(normalizeBlackoutTime(initial?.blackoutEnd || ''));
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(
-    initial ? toFlowNodes(initial.graph.nodes, nodeLabel) : [],
+    initial
+      ? toFlowNodes(initial.graph.nodes, nodeLabel)
+      : [{
+        id: `check_image_update-${Date.now()}`,
+        type: 'flowCard',
+        position: { x: 160, y: 140 },
+        data: {
+          label: nodeLabel('check_image_update'),
+          nodeType: 'check_image_update',
+          retries: 0,
+          targets: [],
+        },
+        deletable: true,
+      }],
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(
     initial ? toFlowEdges(initial.graph.edges, initial.graph.nodes, edgePortLabel) : [],
@@ -224,8 +237,9 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
               { id: 'no_update', match: 'no_update' },
             ],
           } : {}),
-          ...(type === 'check_image_update' ? { agentScope: 'all' } : {}),
+          ...(type === 'check_image_update' ? { targets: [] } : {}),
           ...(type === 'split' ? { targetsSource: 'context' } : {}),
+          ...(type === 'run_flow' ? { wait: true } : {}),
         },
         deletable: true,
       }];

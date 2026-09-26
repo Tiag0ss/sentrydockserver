@@ -27,6 +27,12 @@ export const runsRepo = {
   findById(id: string) {
     return db.select().from(flowRuns).where(eq(flowRuns.id, id)).get();
   },
+  childrenOf(parentRunId: string) {
+    return db.select().from(flowRuns)
+      .where(eq(flowRuns.parentRunId, parentRunId))
+      .orderBy(desc(flowRuns.startedAt))
+      .all();
+  },
   steps(runId: string) {
     return db.select().from(flowRunSteps).where(eq(flowRunSteps.runId, runId)).all();
   },

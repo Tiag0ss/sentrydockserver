@@ -5,7 +5,8 @@ import { agentGateway } from './agentGateway';
 import { audit } from './audit';
 import { getAgentEnvMap } from './agentsService';
 import { getGlobalComposeEnv } from './secretsService';
-import { resolveSdImageEnvForYaml, scanSdImageKeys } from './imagesService';
+import { resolveSdImageEnvForYaml, scanSdImageKeys, listRunningContainersForImage } from './imagesService';
+import { imagesRepo } from '../repositories/imagesRepo';
 import { hashComposeDesired, hashYamlOnly } from './imageTarget';
 import { AppError } from '../utils/errors';
 import logger from '../utils/logger';
@@ -312,4 +313,283 @@ export async function checkComposeProject(id: string, agentIds?: string[]) {
   }
 
   return { projectId: id, results, project: getComposeProject(id) };
+}
+
+type FlowNodeOut = {
+  id: string;
+  type: string;
+  position: { x: number; y: number };
+  data: Record<string, unknown>;
+};
+
+type FlowEdgeOut = {
+  id: string;
+  source: string;
+  target: string;
+  sourceHandle?: string;
+};
+
+function buildBasicComposeUpdateGraph(opts: {
+  imageId: string;
+  composeProjectId: string;
+  targets: Array<{ id: string; agentId: string; containerName: string }>;
+  projectName: string;
+}): { nodes: FlowNodeOut[]; edges: FlowEdgeOut[] } {
+  const ts = Date.now();
+  const checkId = `check_image_update-${ts}`;
+  const approvalId = `wait_approval-${ts}`;
+  const splitId = `split-${ts}`;
+  const pullId = `pull_image-${ts}`;
+  const composeId = `compose_up-${ts}`;
+  const healthyId = `wait_healthy-${ts}`;
+  const joinId = `join-${ts}`;
+  const notifyOkId = `notify-ok-${ts}`;
+  const notifyNoId = `notify-noop-${ts}`;
+  const notifyErrId = `notify-err-${ts}`;
+
+  const nodes: FlowNodeOut[] = [
+    {
+      id: checkId,
+      type: 'check_image_update',
+      position: { x: 40, y: 160 },
+      data: {
+        label: 'Check update',
+        nodeType: 'check_image_update',
+        retries: 0,
+        imageId: opts.imageId,
+        targets: opts.targets,
+        advancePinOnSuccess: false,
+      },
+    },
+    {
+      id: approvalId,
+      type: 'wait_approval',
+      position: { x: 320, y: 40 },
+      data: {
+        label: 'Wait approval',
+        nodeType: 'wait_approval',
+        retries: 0,
+        templateKey: 'awaiting_approval',
+      },
+    },
+    {
+      id: splitId,
+      type: 'split',
+      position: { x: 560, y: 40 },
+      data: {
+        label: 'Split',
+        nodeType: 'split',
+        retries: 0,
+        targetsSource: 'context',
+      },
+    },
+    {
+      id: pullId,
+      type: 'pull_image',
+      position: { x: 800, y: 40 },
+      data: {
+        label: 'Pull',
+        nodeType: 'pull_image',
+        retries: 1,
+        imageId: opts.imageId,
+      },
+    },
+    {
+      id: composeId,
+      type: 'compose_up',
+      position: { x: 1040, y: 40 },
+      data: {
+        label: 'Compose up',
+        nodeType: 'compose_up',
+        retries: 1,
+        composeProjectId: opts.composeProjectId,
+      },
+    },
+    {
+      id: healthyId,
+      type: 'wait_healthy',
+      position: { x: 1280, y: 40 },
+      data: {
+        label: 'Wait healthy',
+        nodeType: 'wait_healthy',
+        retries: 0,
+        timeoutMs: 120_000,
+        probeType: 'docker',
+      },
+    },
+    {
+      id: joinId,
+      type: 'join',
+      position: { x: 1520, y: 40 },
+      data: {
+        label: 'Join',
+        nodeType: 'join',
+        retries: 0,
+        mode: 'wait_all',
+      },
+    },
+    {
+      id: notifyOkId,
+      type: 'notify',
+      position: { x: 1760, y: 40 },
+      data: {
+        label: 'Notify',
+        nodeType: 'notify',
+        retries: 0,
+        templateKey: 'update_success',
+        level: 'info',
+      },
+    },
+    {
+      id: notifyNoId,
+      type: 'notify',
+      position: { x: 320, y: 220 },
+      data: {
+        label: 'No update',
+        nodeType: 'notify',
+        retries: 0,
+        message: `Compose «${opts.projectName}»: sem actualizações ({{image}}).`,
+        level: 'info',
+      },
+    },
+    {
+      id: notifyErrId,
+      type: 'notify',
+      position: { x: 320, y: 360 },
+      data: {
+        label: 'Error',
+        nodeType: 'notify',
+        retries: 0,
+        templateKey: 'execution_failed',
+        level: 'error',
+      },
+    },
+  ];
+
+  const edges: FlowEdgeOut[] = [
+    { id: `e-${ts}-upd`, source: checkId, target: approvalId, sourceHandle: 'update' },
+    { id: `e-${ts}-nou`, source: checkId, target: notifyNoId, sourceHandle: 'no_update' },
+    { id: `e-${ts}-err`, source: checkId, target: notifyErrId, sourceHandle: 'error' },
+    { id: `e-${ts}-appr`, source: approvalId, target: splitId, sourceHandle: 'out' },
+    { id: `e-${ts}-spl`, source: splitId, target: pullId, sourceHandle: 'out' },
+    { id: `e-${ts}-pull`, source: pullId, target: composeId, sourceHandle: 'out' },
+    { id: `e-${ts}-cmp`, source: composeId, target: healthyId, sourceHandle: 'out' },
+    { id: `e-${ts}-hlt`, source: healthyId, target: joinId, sourceHandle: 'out' },
+    { id: `e-${ts}-join`, source: joinId, target: notifyOkId, sourceHandle: 'out' },
+  ];
+
+  return { nodes, edges };
+}
+
+/**
+ * Cria um flow básico: check → aprovação → split → pull → compose_up → healthy → join → notify
+ * para os agentes onde o projecto já foi instalado, usando a primeira imagem SD_IMAGE_* do YAML.
+ */
+export async function createUpdateFlowFromCompose(projectId: string, actor: string) {
+  const project = composeProjectsRepo.findById(projectId);
+  if (!project) throw new AppError(404, 'compose project not found', 'not_found');
+
+  const keys = scanSdImageKeys(project.yamlText);
+  if (!keys.length) {
+    throw new AppError(
+      400,
+      'YAML has no ${SD_IMAGE_*} placeholders — add catalog images first',
+      'no_sd_image',
+    );
+  }
+
+  const missing: string[] = [];
+  const catalogRows = keys.map((key) => {
+    const row = imagesRepo.findByKey(key);
+    if (!row) missing.push(key);
+    return row;
+  });
+  if (missing.length) {
+    throw new AppError(
+      400,
+      `Missing catalog images: ${missing.map((k) => `SD_IMAGE_${k}`).join(', ')}`,
+      'missing_sd_image',
+    );
+  }
+
+  const states = composeStatesRepo.listByProject(projectId);
+  const agentIds = [...new Set(states.map((s) => s.agentId))];
+  if (!agentIds.length) {
+    throw new AppError(
+      400,
+      'No agents have this project yet — deploy to at least one agent first',
+      'no_agents',
+    );
+  }
+
+  const primary = catalogRows[0]!;
+  const running = await listRunningContainersForImage(primary.id);
+  const agentSet = new Set(agentIds);
+  const targets: Array<{ id: string; agentId: string; containerName: string }> = [];
+  for (const ag of running.agents) {
+    if (!agentSet.has(ag.agentId)) continue;
+    for (const c of ag.containers) {
+      targets.push({
+        id: `${ag.agentId}:${c.name}`,
+        agentId: ag.agentId,
+        containerName: c.name,
+      });
+    }
+  }
+
+  const extraKeys = keys.slice(1);
+  const warnings: string[] = [];
+  if (!targets.length) {
+    warnings.push('No matching running containers found on installed agents — select targets in the check node.');
+  }
+  if (extraKeys.length) {
+    warnings.push(
+      `Check uses SD_IMAGE_${keys[0]}; other keys (${extraKeys.map((k) => `SD_IMAGE_${k}`).join(', ')}) are still applied on Compose deploy.`,
+    );
+  }
+
+  const graph = buildBasicComposeUpdateGraph({
+    imageId: primary.id,
+    composeProjectId: projectId,
+    targets,
+    projectName: project.name,
+  });
+
+  const { createFlow } = await import('./flowsService');
+  const name = `Update · ${project.name}`;
+  const description = [
+    `Gerado a partir do Compose «${project.name}».`,
+    `Imagem: SD_IMAGE_${keys[0]} (${primary.repository}).`,
+    `Agentes: ${agentIds.length}. Contentores no check: ${targets.length}.`,
+  ].join(' ');
+
+  const created = await createFlow({
+    name,
+    description,
+    graph,
+    scheduleEnabled: false,
+  }, actor);
+
+  await audit({
+    actor,
+    action: 'compose.update_flow_created',
+    entity: 'compose_project',
+    entityId: projectId,
+    payload: {
+      flowId: created.id,
+      imageKey: keys[0],
+      targets: targets.length,
+      agents: agentIds.length,
+    },
+  });
+
+  return {
+    flowId: created.id,
+    name,
+    imageKey: keys[0],
+    imageId: primary.id,
+    targetsCount: targets.length,
+    agentIds,
+    warnings,
+  };
 }
