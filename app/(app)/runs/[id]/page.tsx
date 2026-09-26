@@ -383,9 +383,9 @@ export default function RunDetailPage() {
   const [childModalLoading, setChildModalLoading] = useState(false);
   const [childModalError, setChildModalError] = useState('');
 
-  async function load() {
+  const load = useCallback(async () => {
     setRun(await api<RunDetail>(`/runs/${id}`));
-  }
+  }, [id]);
 
   const loadChildModal = useCallback(async (childId: string) => {
     setChildModalLoading(true);
@@ -458,7 +458,7 @@ export default function RunDetailPage() {
     void load();
     const timer = setInterval(() => { void load(); }, 3000);
     return () => clearInterval(timer);
-  }, [id]);
+  }, [load]);
 
   if (!run) return <p>{t('runs.loading')}</p>;
 

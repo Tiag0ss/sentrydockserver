@@ -170,6 +170,7 @@ export const ptPT: Messages = {
     blackoutStart: 'Início blackout',
     blackoutEnd: 'Fim blackout',
     addCard: 'Adicionar card',
+    addCardHint: 'Clica ou arrasta para o canvas.',
     properties: 'Propriedades',
     selectNode: 'Selecciona um node',
     removeNode: 'Remover node',

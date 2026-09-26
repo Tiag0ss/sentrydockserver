@@ -168,6 +168,7 @@ export const en = {
     blackoutStart: 'Blackout start',
     blackoutEnd: 'Blackout end',
     addCard: 'Add card',
+    addCardHint: 'Click or drag onto the canvas.',
     properties: 'Properties',
     selectNode: 'Select a node',
     removeNode: 'Remove node',

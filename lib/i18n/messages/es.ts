@@ -170,6 +170,7 @@ export const es: Messages = {
     blackoutStart: 'Inicio blackout',
     blackoutEnd: 'Fin blackout',
     addCard: 'Añadir card',
+    addCardHint: 'Haz clic o arrastra al canvas.',
     properties: 'Propiedades',
     selectNode: 'Selecciona un node',
     removeNode: 'Quitar node',

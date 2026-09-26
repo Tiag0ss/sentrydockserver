@@ -5,13 +5,13 @@ import { useRouter } from 'next/navigation';
 import { api, setToken } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { LanguageSwitcher } from '@/lib/i18n/LanguageSwitcher';
-import { Field, Input, Button, Alert } from '@/components/ui';
+import { Field, Input, Alert } from '@/components/ui';
 
 export default function LoginPage() {
   const router = useRouter();
   const { t } = useI18n();
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 

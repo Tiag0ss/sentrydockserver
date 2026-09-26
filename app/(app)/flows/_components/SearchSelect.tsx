@@ -137,6 +137,7 @@ export function SearchSelect({
             <button
               type="button"
               role="option"
+              aria-selected={!value}
               onClick={() => { onChange(''); setOpen(false); }}
               style={optionStyle(!value)}
             >
@@ -146,6 +147,7 @@ export function SearchSelect({
               <button
                 type="button"
                 role="option"
+                aria-selected={false}
                 onClick={() => { onChange(customCandidate); setOpen(false); }}
                 style={optionStyle(false)}
               >

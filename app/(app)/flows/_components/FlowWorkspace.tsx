@@ -28,6 +28,8 @@ import type { FlowSummary } from './FlowsList';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { useIsMobile } from '@/hooks/useIsMobile';
 
+const PALETTE_DND_MIME = 'application/sentrydock-flow-node';
+
 /** Normaliza para HH:mm; rejeita valores inválidos. */
 function normalizeBlackoutTime(raw: string): string {
   const v = raw.trim();
@@ -573,20 +575,44 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
     setMsg(t('flows.imported'));
   }
 
+  const onPaletteDragStart = (e: React.DragEvent, type: string) => {
+    e.dataTransfer.setData(PALETTE_DND_MIME, type);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const onCanvasDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const onCanvasDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const type = e.dataTransfer.getData(PALETTE_DND_MIME);
+    if (!type) return;
+    const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    addNode(type, pos);
+    if (isMobile) setMobilePanel(null);
+  };
+
   const palette = (
     <div style={{ overflow: 'auto', border: '1px solid var(--sd-border)', borderRadius: 10, padding: 8, background: 'var(--sd-panel)', height: '100%' }}>
       <div style={{ fontSize: 12, color: 'var(--sd-muted)', marginBottom: 8 }}>{t('flows.addCard')}</div>
+      <div style={{ fontSize: 11, color: 'var(--sd-muted)', marginBottom: 8, lineHeight: 1.35 }}>
+        {t('flows.addCardHint')}
+      </div>
       {NODE_TYPES_LIST.map((n) => (
         <button
           key={n.type}
           type="button"
+          draggable
+          onDragStart={(e) => onPaletteDragStart(e, n.type)}
           onClick={() => {
             addNode(n.type);
             if (isMobile) setMobilePanel(null);
           }}
           style={{
             display: 'block', width: '100%', textAlign: 'left', background: 'transparent', color: 'var(--sd-text)',
-            border: '1px solid var(--sd-border)', padding: 8, borderRadius: 6, cursor: 'pointer', marginBottom: 4, fontSize: 12,
+            border: '1px solid var(--sd-border)', padding: 8, borderRadius: 6, cursor: 'grab', marginBottom: 4, fontSize: 12,
             minHeight: 40,
           }}
         >
@@ -763,6 +789,8 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
             onEdgeContextMenu={onEdgeContextMenu}
             onPaneContextMenu={onPaneContextMenu}
             onPaneClick={() => setMenu(null)}
+            onDragOver={onCanvasDragOver}
+            onDrop={onCanvasDrop}
             deleteKeyCode={['Backspace', 'Delete']}
             fitView
             proOptions={{ hideAttribution: true }}

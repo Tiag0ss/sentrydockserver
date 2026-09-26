@@ -55,6 +55,7 @@ export function scheduleUpdateEngine() {
   }
   cron.schedule('* * * * *', () => {
     void tickFlowSchedules();
+    void tickPolicies();
     void retainLogs();
   });
   logger.info('Update engine cron started');
@@ -161,7 +162,7 @@ export async function runPolicyCheck(policyId: string) {
   if (watch.secretId) {
     const plain = getSecretPlain(watch.secretId);
     if (plain) {
-      try { auth = JSON.parse(plain); } catch (err) { logger.warn('bad secret json', { secretId: watch.secretId }); }
+      try { auth = JSON.parse(plain); } catch { logger.warn('bad secret json', { secretId: watch.secretId }); }
     }
   }
 

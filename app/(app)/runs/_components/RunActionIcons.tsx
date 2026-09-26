@@ -10,12 +10,12 @@ import {
 } from '@/components/IconActions';
 
 /** @deprecated Prefer IconOpen from @/components/IconActions */
-export function IconOpen({ title }: { title: string }) {
+export function IconOpen({ title: _title }: { title: string }) {
   return <SharedIconOpen />;
 }
 
 /** @deprecated Prefer IconRefresh from @/components/IconActions */
-export function IconRerun({ title }: { title: string }) {
+export function IconRerun({ title: _title }: { title: string }) {
   return <IconRefresh />;
 }
 

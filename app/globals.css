@@ -44,7 +44,7 @@ html, body {
   padding: 0;
   min-height: 100%;
   color: var(--sd-text);
-  font-family: "Outfit", "Segoe UI", sans-serif;
+  font-family: var(--font-outfit), "Segoe UI", sans-serif;
   background:
     radial-gradient(1000px 500px at 8% -8%, var(--sd-bg-glow) 0%, transparent 55%),
     var(--sd-bg);
@@ -351,7 +351,7 @@ button, input, select, textarea { font: inherit; }
   line-height: 1.2;
 }
 .sd-header-stat-value {
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: var(--font-ibm-plex-mono), monospace;
   font-weight: 700;
   font-size: 16px;
   line-height: 1.2;
@@ -949,7 +949,7 @@ button, input, select, textarea { font: inherit; }
 }
 .sd-sidebar a { color: inherit; }
 .sd-brand {
-  font-family: "IBM Plex Mono", monospace;
+  font-family: var(--font-ibm-plex-mono), monospace;
   font-weight: 700;
   font-size: 1.05rem;
   letter-spacing: 0.02em;
@@ -1259,7 +1259,7 @@ button, input, select, textarea { font: inherit; }
 }
 .sd-login-brand {
   margin: 0;
-  font-family: "IBM Plex Mono", monospace;
+  font-family: var(--font-ibm-plex-mono), monospace;
   font-size: 1.75rem;
   font-weight: 700;
 }

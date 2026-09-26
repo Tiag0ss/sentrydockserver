@@ -18,6 +18,7 @@ import { deployComposeProject } from './composeService';
 import { imagesRepo } from '../repositories/imagesRepo';
 import { composeProjectsRepo } from '../repositories/composeRepo';
 import { uiBus } from './uiBus';
+import { redactWebhookUrl } from '../utils/webhookUrl';
 import logger from '../utils/logger';
 
 function notifyUiRuns() {
@@ -164,23 +165,6 @@ function renderTemplate(body: string, ctx: RunContext, opts?: { human?: boolean 
       return String(v);
     }
   });
-}
-
-/** Mask credentials embedded in webhook URLs (Discord token path, basic auth, …). */
-function redactWebhookUrl(url: string): string {
-  const maskedAuth = url.replace(/\/\/.*@/, '//***@');
-  try {
-    const u = new URL(maskedAuth);
-    // Discord: /api/webhooks/{id}/{token}
-    const m = u.pathname.match(/^(\/api\/webhooks\/[^/]+\/)(.+)$/i);
-    if (m) {
-      u.pathname = `${m[1]}***`;
-      return u.toString();
-    }
-  } catch {
-    /* keep maskedAuth */
-  }
-  return maskedAuth;
 }
 
 function recordNodeFailure(ctx: RunContext, node: FlowNode, error: string) {
@@ -2035,7 +2019,7 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
               newDigest: b.newDigest || ctx.newDigest,
             };
             const splitHandle = resolveSplitHandleForTarget(graph, node, b);
-            let path = nextNodes(graph, node.id, splitHandle).filter((n) => n.type !== 'join');
+            const path = nextNodes(graph, node.id, splitHandle).filter((n) => n.type !== 'join');
             if (path.length === 0) {
               const msg = `No path from split for target ${b.containerName || b.agentId} (handle=${splitHandle})`;
               runsRepo.updateBranch(b.branchId, {

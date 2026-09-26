@@ -643,9 +643,7 @@ export function NodeInspector({ selectedNode, nodes = [], edges = [], onPatch }:
           <SearchSelect
             label={t('inspector.subflow')}
             value={String(selectedNode.data.flowId || '')}
-            options={flows
-              .filter((f) => true)
-              .map((f) => ({ value: f.id, label: f.name }))}
+            options={flows.map((f) => ({ value: f.id, label: f.name }))}
             onChange={(v) => patch('flowId', v)}
             placeholder={t('inspector.searchFlow')}
             emptyLabel={t('inspector.selectFlow')}

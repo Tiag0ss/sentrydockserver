@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
@@ -58,7 +58,7 @@ export function FlowsList({ onCreate, onEdit }: Props) {
   const [query, setQuery] = useState('');
   const [runningId, setRunningId] = useState<string | null>(null);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
@@ -68,9 +68,9 @@ export function FlowsList({ onCreate, onEdit }: Props) {
     } finally {
       setLoading(false);
     }
-  }
+  }, [t]);
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [load]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
