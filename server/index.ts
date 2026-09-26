@@ -58,6 +58,10 @@ async function main() {
     io.of('/ui').emit('notification:new', n);
   });
 
+  uiBus.on('runs', () => {
+    io.of('/ui').emit('runs:changed', { ts: Date.now() });
+  });
+
   setInterval(() => {
     io.of('/ui').emit('dashboard:ping', { ts: Date.now() });
   }, 5000);

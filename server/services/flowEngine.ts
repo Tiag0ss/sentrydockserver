@@ -17,7 +17,16 @@ import { getRegistryAuth, resolveCatalogImageRef } from './imagesService';
 import { deployComposeProject } from './composeService';
 import { imagesRepo } from '../repositories/imagesRepo';
 import { composeProjectsRepo } from '../repositories/composeRepo';
+import { uiBus } from './uiBus';
 import logger from '../utils/logger';
+
+function notifyUiRuns() {
+  try {
+    uiBus.emit('runs');
+  } catch {
+    /* ignore */
+  }
+}
 
 export type FlowNode = {
   id: string;
@@ -264,6 +273,7 @@ export async function startFlowRun(opts: {
   });
 
   void advanceRun(runId);
+  notifyUiRuns();
   return runId;
 }
 
@@ -547,6 +557,7 @@ export async function userContinueRun(runId: string, opts: {
       payload: { decision, nodeId: run.currentNodeId },
     });
     void advanceRun(runId, { afterUserContinue: true });
+    notifyUiRuns();
     return;
   }
 
@@ -563,9 +574,11 @@ export async function userContinueRun(runId: string, opts: {
     }
     runsRepo.update(runId, { status: 'aborted', finishedAt: new Date(), currentNodeId: null });
     await audit({ actor: 'user', action: 'flow_run.aborted', entity: 'flow_run', entityId: runId, flowRunId: runId });
+    notifyUiRuns();
     return;
   }
   runsRepo.update(runId, { status: 'running', contextJson: JSON.stringify(ctx) });
+  notifyUiRuns();
   void advanceRun(runId, { afterUserContinue: true });
 }
 
@@ -796,6 +809,7 @@ async function executeNode(
       lastError: null,
     });
     runsRepo.update(runId, { currentNodeId: node.id, status: 'running' });
+    notifyUiRuns();
 
     try {
       if (dryRun && ['pull_image', 'recreate_container', 'compose_up', 'compose_down', 'rollback'].includes(node.type)) {
@@ -1441,6 +1455,7 @@ async function executeNode(
             currentNodeId: node.id,
             contextJson: JSON.stringify(ctx),
           });
+          notifyUiRuns();
           await upsertStep(runId, node.id, branchId, 'running', {
             detailJson: detailJson({
               message: message || undefined,
@@ -2195,6 +2210,7 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
             flowRunId: runId,
             payload: { outcome: status, failedNode: node.id, failedType: node.type },
           });
+          notifyUiRuns();
           return;
         }
         runsRepo.update(runId, {
@@ -2202,6 +2218,7 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
           currentNodeId: node.id,
           contextJson: JSON.stringify(ctx),
         });
+        notifyUiRuns();
         return;
       }
 
@@ -2240,6 +2257,7 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
       flowRunId: runId,
       payload: { outcome: status },
     });
+    notifyUiRuns();
   } catch (e) {
     logger.error('advanceRun error', { runId, err: e });
     for (const key of [...runFlowOnceKeys]) {
@@ -2251,6 +2269,7 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
         currentNodeId: null,
         summary: e instanceof Error ? e.message : String(e),
       });
+    notifyUiRuns();
   }
 }
 

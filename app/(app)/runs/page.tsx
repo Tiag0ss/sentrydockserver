@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { io } from 'socket.io-client';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { tt } from '@/lib/i18n/translate';
@@ -106,11 +107,15 @@ export default function RunsPage() {
   }, [q, flowId, runStatus, trigger, dryRun, topLevelOnly, pageSize]);
 
   const loadActive = useCallback(async () => {
-    setActive(await api('/runs?status=active'));
+    try {
+      setActive(await api('/runs?status=active'));
+    } catch {
+      /* keep previous list on transient errors */
+    }
   }, []);
 
-  const loadHistory = useCallback(async () => {
-    setLoadingHistory(true);
+  const loadHistory = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoadingHistory(true);
     try {
       const params = new URLSearchParams();
       params.set('status', 'history');
@@ -127,7 +132,7 @@ export default function RunsPage() {
       setTotal(Number(data.total || 0));
       setFacets(data.facets || { flows: [], statuses: [], triggers: [] });
     } finally {
-      setLoadingHistory(false);
+      if (!opts?.silent) setLoadingHistory(false);
     }
   }, [page, pageSize, q, flowId, runStatus, trigger, dryRun, topLevelOnly]);
 
@@ -143,6 +148,18 @@ export default function RunsPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Live updates via the same /ui socket the dashboard uses (dashboard:ping every 5s).
+  useEffect(() => {
+    const socket = io('/ui', { path: '/socket.io' });
+    const onPing = () => {
+      void loadActive();
+      void loadHistory({ silent: true });
+    };
+    socket.on('dashboard:ping', onPing);
+    socket.on('runs:changed', onPing);
+    return () => { socket.close(); };
+  }, [loadActive, loadHistory]);
 
   const hasFilters = Boolean(q || flowId || runStatus || trigger || dryRun || !topLevelOnly);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
