@@ -765,10 +765,20 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
             onPaneClick={() => setMenu(null)}
             deleteKeyCode={['Backspace', 'Delete']}
             fitView
+            proOptions={{ hideAttribution: true }}
           >
-            <Background />
-            <Controls />
-            {!isMobile ? <MiniMap /> : null}
+            <Background color="var(--sd-border-strong)" gap={18} size={1} />
+            <Controls showInteractive={false} />
+            {!isMobile ? (
+              <MiniMap
+                pannable
+                zoomable
+                bgColor="#141c2e"
+                maskColor="rgba(10, 16, 32, 0.55)"
+                nodeColor="#0d9488"
+                nodeStrokeWidth={0}
+              />
+            ) : null}
           </ReactFlow>
           <FlowContextMenu
             menu={menu}

@@ -1319,3 +1319,55 @@ button, input, select, textarea { font: inherit; }
     white-space: normal;
   }
 }
+
+/* React Flow — controlos / minimapa alinhados ao tema do canvas */
+.react-flow__attribution {
+  display: none !important;
+}
+
+.react-flow__controls {
+  border: 1px solid var(--sd-border-strong) !important;
+  border-radius: 8px !important;
+  overflow: hidden;
+  box-shadow: var(--sd-shadow) !important;
+}
+
+.react-flow__controls-button {
+  background: var(--sd-canvas-panel) !important;
+  border-bottom: 1px solid var(--sd-border-strong) !important;
+  fill: var(--sd-sidebar-text) !important;
+  color: var(--sd-sidebar-text) !important;
+  width: 28px !important;
+  height: 28px !important;
+}
+
+.react-flow__controls-button:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.react-flow__controls-button:last-child {
+  border-bottom: none !important;
+}
+
+.react-flow__controls-button svg {
+  fill: currentColor !important;
+  max-width: 14px;
+  max-height: 14px;
+}
+
+.react-flow__minimap {
+  background: var(--sd-canvas-panel) !important;
+  border: 1px solid var(--sd-border-strong) !important;
+  border-radius: 8px !important;
+  overflow: hidden;
+  box-shadow: var(--sd-shadow) !important;
+}
+
+.react-flow__minimap-mask {
+  fill: rgba(10, 16, 32, 0.55) !important;
+}
+
+/* Não forçar fill com var() — no SVG do minimapa as custom properties falham com frequência */
+.react-flow__minimap-node {
+  stroke: none !important;
+}

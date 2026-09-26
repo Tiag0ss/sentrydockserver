@@ -75,6 +75,17 @@ function statusColor(status: string | undefined, isCurrent: boolean): {
   return { border: 'var(--border)', background: 'var(--panel)', handle: '#5a7aa8' };
 }
 
+function minimapNodeColor(status: string | undefined, isCurrent: boolean): string {
+  if (status === 'success') return '#3dd68c';
+  if (status === 'failed') return '#f07178';
+  if (status === 'rejected') return '#ffb454';
+  if (status === 'running' || isCurrent) return '#3dd6c6';
+  if (status === 'interrupted' || status === 'waiting_approval' || status === 'awaiting_user') {
+    return '#ffb454';
+  }
+  return '#5a7aa8';
+}
+
 function RunFlowCanvas({ graph, nodeStatuses, currentNodeId, onNodeClick, height = 420 }: Props) {
   const { t } = useI18n();
 
@@ -87,12 +98,19 @@ function RunFlowCanvas({ graph, nodeStatuses, currentNodeId, onNodeClick, height
       const labelKey = `nodes.${nodeType}`;
       const translated = t(labelKey);
       const clickable = nodeType === 'run_flow' && Boolean(onNodeClick);
+      const outputsLen = Array.isArray(raw.data?.branches)
+        ? (raw.data!.branches as unknown[]).length
+        : (nodeType === 'check_image_update' || nodeType === 'run_flow' || nodeType === 'if' ? 3 : 1);
+      const nodeH = Math.max(56, outputsLen * 22 + 28);
       return {
         id: raw.id,
         type: 'flowCard',
         position: raw.position || { x: 80 + (i % 4) * 260, y: 80 + Math.floor(i / 4) * 140 },
         draggable: false,
         selectable: true,
+        // Dimensões explícitas — o MiniMap precisa disto com nós custom
+        width: 220,
+        height: nodeH,
         style: clickable ? { cursor: 'pointer' } : undefined,
         data: {
           ...raw.data,
@@ -171,9 +189,19 @@ function RunFlowCanvas({ graph, nodeStatuses, currentNodeId, onNodeClick, height
         proOptions={{ hideAttribution: true }}
         onNodeClick={onNodeClick ? handleNodeClick : undefined}
       >
-        <Background />
+        <Background color="var(--sd-border-strong)" gap={18} size={1} />
         <Controls showInteractive={false} />
-        <MiniMap pannable zoomable />
+        <MiniMap
+          pannable
+          zoomable
+          bgColor="#141c2e"
+          maskColor="rgba(10, 16, 32, 0.55)"
+          nodeStrokeWidth={0}
+          nodeColor={(n) => minimapNodeColor(
+            String(n.data?.runStatus || ''),
+            Boolean(n.data?.isCurrent),
+          )}
+        />
       </ReactFlow>
     </div>
   );
