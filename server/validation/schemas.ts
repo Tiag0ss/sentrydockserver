@@ -60,6 +60,13 @@ export const createFlowSchema = z.object({
   blackoutEnd: blackoutTimeSchema,
 });
 
+export const createUpdateFlowFromImageSchema = z.object({
+  targets: z.array(z.object({
+    agentId: z.string().min(1),
+    containerName: z.string().min(1),
+  })).min(1).optional(),
+});
+
 export const updateFlowSchema = z.object({
   name: z.string().optional(),
   description: z.string().nullable().optional(),

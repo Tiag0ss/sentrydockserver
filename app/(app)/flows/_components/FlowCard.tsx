@@ -22,9 +22,11 @@ export function FlowCard({ data, selected }: NodeProps) {
   const multi = outputs.length > 1;
   const outPad = multi ? 120 : 52;
   const minH = Math.max(56, outputs.length * 22 + 28);
-  const title = t(`nodes.${nodeType}`) !== `nodes.${nodeType}`
+  const typeTitle = t(`nodes.${nodeType}`) !== `nodes.${nodeType}`
     ? t(`nodes.${nodeType}`)
-    : String(data.label || nodeType);
+    : nodeType;
+  const customLabel = String(data.label || '').trim();
+  const title = customLabel || typeTitle;
 
   const runColors = data.runColors as RunColors | undefined;
   const runStatus = data.runStatus ? String(data.runStatus) : null;

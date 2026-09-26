@@ -49,7 +49,10 @@ function FlowsPageInner() {
     return (
       <FlowsList
         key={listKey}
-        onCreate={() => setView({ mode: 'create' })}
+        onCreateBlank={() => setView({ mode: 'create' })}
+        onCreatedFromImage={(flowId) => {
+          router.push(`/flows?edit=${encodeURIComponent(flowId)}`);
+        }}
         onEdit={(flow) => setView({ mode: 'edit', flow })}
       />
     );

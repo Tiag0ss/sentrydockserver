@@ -378,19 +378,19 @@ function buildBasicComposeUpdateGraph(opts: {
   const checkId = `check_image_update-${ts}`;
   const approvalId = `wait_approval-${ts}`;
   const splitId = `split-${ts}`;
-  const pullId = `pull_image-${ts}`;
-  const composeId = `compose_up-${ts}`;
-  const healthyId = `wait_healthy-${ts}`;
   const joinId = `join-${ts}`;
   const notifyOkId = `notify-ok-${ts}`;
   const notifyNoId = `notify-noop-${ts}`;
   const notifyErrId = `notify-err-${ts}`;
+  const laneGapY = 160;
+  const baseY = 40;
+  const midY = baseY + Math.max(0, (opts.targets.length - 1) * laneGapY) / 2;
 
   const nodes: FlowNodeOut[] = [
     {
       id: checkId,
       type: 'check_image_update',
-      position: { x: 40, y: 160 },
+      position: { x: 40, y: midY },
       data: {
         label: 'Check update',
         nodeType: 'check_image_update',
@@ -403,7 +403,7 @@ function buildBasicComposeUpdateGraph(opts: {
     {
       id: approvalId,
       type: 'wait_approval',
-      position: { x: 320, y: 40 },
+      position: { x: 280, y: midY },
       data: {
         label: 'Wait approval',
         nodeType: 'wait_approval',
@@ -414,7 +414,7 @@ function buildBasicComposeUpdateGraph(opts: {
     {
       id: splitId,
       type: 'split',
-      position: { x: 560, y: 40 },
+      position: { x: 520, y: midY },
       data: {
         label: 'Split',
         nodeType: 'split',
@@ -429,43 +429,9 @@ function buildBasicComposeUpdateGraph(opts: {
       },
     },
     {
-      id: pullId,
-      type: 'pull_image',
-      position: { x: 800, y: 40 },
-      data: {
-        label: 'Pull',
-        nodeType: 'pull_image',
-        retries: 1,
-        imageId: opts.imageId,
-      },
-    },
-    {
-      id: composeId,
-      type: 'compose_up',
-      position: { x: 1040, y: 40 },
-      data: {
-        label: 'Compose up',
-        nodeType: 'compose_up',
-        retries: 1,
-        composeProjectId: opts.composeProjectId,
-      },
-    },
-    {
-      id: healthyId,
-      type: 'wait_healthy',
-      position: { x: 1280, y: 40 },
-      data: {
-        label: 'Wait healthy',
-        nodeType: 'wait_healthy',
-        retries: 0,
-        timeoutMs: 120_000,
-        probeType: 'docker',
-      },
-    },
-    {
       id: joinId,
       type: 'join',
-      position: { x: 1520, y: 40 },
+      position: { x: 1480, y: midY },
       data: {
         label: 'Join',
         nodeType: 'join',
@@ -476,7 +442,7 @@ function buildBasicComposeUpdateGraph(opts: {
     {
       id: notifyOkId,
       type: 'notify',
-      position: { x: 1760, y: 40 },
+      position: { x: 1720, y: midY },
       data: {
         label: 'Notify',
         nodeType: 'notify',
@@ -488,19 +454,19 @@ function buildBasicComposeUpdateGraph(opts: {
     {
       id: notifyNoId,
       type: 'notify',
-      position: { x: 320, y: 220 },
+      position: { x: 280, y: baseY + Math.max(opts.targets.length, 1) * laneGapY + 40 },
       data: {
         label: 'No update',
         nodeType: 'notify',
         retries: 0,
-        message: `Compose «${opts.projectName}»: sem actualizações ({{image}}).`,
+        message: `Compose «${opts.projectName}»: no updates ({{image}}).`,
         level: 'info',
       },
     },
     {
       id: notifyErrId,
       type: 'notify',
-      position: { x: 320, y: 360 },
+      position: { x: 280, y: baseY + Math.max(opts.targets.length, 1) * laneGapY + 180 },
       data: {
         label: 'Error',
         nodeType: 'notify',
@@ -516,20 +482,72 @@ function buildBasicComposeUpdateGraph(opts: {
     { id: `e-${ts}-nou`, source: checkId, target: notifyNoId, sourceHandle: 'no_update' },
     { id: `e-${ts}-err`, source: checkId, target: notifyErrId, sourceHandle: 'error' },
     { id: `e-${ts}-appr`, source: approvalId, target: splitId, sourceHandle: 'out' },
-    // Uma aresta por contentor (mesmo caminho pull→compose); legado `out` se não houver targets
-    ...(opts.targets.length
-      ? opts.targets.map((t, i) => ({
-        id: `e-${ts}-spl-${i}`,
-        source: splitId,
-        target: pullId,
-        sourceHandle: t.id,
-      }))
-      : [{ id: `e-${ts}-spl`, source: splitId, target: pullId, sourceHandle: 'out' }]),
-    { id: `e-${ts}-pull`, source: pullId, target: composeId, sourceHandle: 'out' },
-    { id: `e-${ts}-cmp`, source: composeId, target: healthyId, sourceHandle: 'out' },
-    { id: `e-${ts}-hlt`, source: healthyId, target: joinId, sourceHandle: 'out' },
     { id: `e-${ts}-join`, source: joinId, target: notifyOkId, sourceHandle: 'out' },
   ];
+
+  const targets = opts.targets.length
+    ? opts.targets
+    : [{ id: 'out', agentId: '', containerName: '' }];
+
+  targets.forEach((t, i) => {
+    const y = baseY + i * laneGapY;
+    const pullId = `pull_image-${ts}-l${i}`;
+    const composeId = `compose_up-${ts}-l${i}`;
+    const healthyId = `wait_healthy-${ts}-l${i}`;
+    const label = t.containerName || opts.projectName;
+
+    nodes.push(
+      {
+        id: pullId,
+        type: 'pull_image',
+        position: { x: 760, y },
+        data: {
+          label: t.containerName ? `Pull · ${label}` : 'Pull',
+          nodeType: 'pull_image',
+          retries: 1,
+          imageId: opts.imageId,
+          ...(t.agentId ? { agentId: t.agentId, containerName: t.containerName } : {}),
+        },
+      },
+      {
+        id: composeId,
+        type: 'compose_up',
+        position: { x: 1000, y },
+        data: {
+          label: t.containerName ? `Compose · ${label}` : 'Compose up',
+          nodeType: 'compose_up',
+          retries: 1,
+          composeProjectId: opts.composeProjectId,
+          ...(t.agentId ? { agentId: t.agentId, containerName: t.containerName } : {}),
+        },
+      },
+      {
+        id: healthyId,
+        type: 'wait_healthy',
+        position: { x: 1240, y },
+        data: {
+          label: t.containerName ? `Healthy · ${label}` : 'Wait healthy',
+          nodeType: 'wait_healthy',
+          retries: 0,
+          timeoutMs: 120_000,
+          probeType: 'docker',
+          ...(t.agentId ? { agentId: t.agentId, containerName: t.containerName } : {}),
+        },
+      },
+    );
+
+    edges.push(
+      {
+        id: `e-${ts}-l${i}-spl`,
+        source: splitId,
+        target: pullId,
+        sourceHandle: t.id || 'out',
+      },
+      { id: `e-${ts}-l${i}-pull`, source: pullId, target: composeId, sourceHandle: 'out' },
+      { id: `e-${ts}-l${i}-cmp`, source: composeId, target: healthyId, sourceHandle: 'out' },
+      { id: `e-${ts}-l${i}-hlt`, source: healthyId, target: joinId, sourceHandle: 'out' },
+    );
+  });
 
   return { nodes, edges };
 }

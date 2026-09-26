@@ -105,14 +105,16 @@ function redistributeSplitEdges(
   const specific = outs.filter((e) => !isGeneric(e));
   const rest = edges.filter((e) => e.source !== splitId);
 
-  // Já há handles por contentor: remover leftovers `out` (senão o motor podia seguir os 3 caminhos)
+  // Já há handles por contentor: não mexer se cada branch já tem aresta própria
   if (specific.length > 0) {
-    const specificIds = new Set(specific.map((e) => String(e.sourceHandle)));
     const branchIds = new Set(branches.map((b) => b.id));
-    // Manter só específicas que ainda correspondem a um branch
     const kept = specific.filter((e) => branchIds.has(String(e.sourceHandle)));
-    // Se faltam branches sem aresta e ainda há genéricas, atribuir
-    const missing = branches.filter((b) => !specificIds.has(b.id));
+    const keptIds = new Set(kept.map((e) => String(e.sourceHandle)));
+    const missing = branches.filter((b) => !keptIds.has(b.id));
+    // Cada branch coberta por uma aresta específica → preservar (não fundir em targets iguais)
+    if (missing.length === 0 && kept.length === branches.length) {
+      return [...rest, ...kept];
+    }
     if (missing.length && generic.length === 1) {
       const g = generic[0];
       return [
@@ -160,13 +162,14 @@ function toFlowNodes(graphNodes: FlowSummary['graph']['nodes'], nodeLabel: (type
   return (graphNodes || []).map((raw) => {
     const n = raw as Node & { type?: string; data?: Record<string, unknown> };
     const nodeType = String(n.type || n.data?.nodeType || 'notify');
+    const customLabel = typeof n.data?.label === 'string' ? n.data.label.trim() : '';
     return {
       ...n,
       type: 'flowCard',
       deletable: true,
       data: {
         ...n.data,
-        label: nodeLabel(nodeType),
+        label: customLabel || nodeLabel(nodeType),
         nodeType,
       },
     };
