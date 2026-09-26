@@ -239,7 +239,7 @@ export default function UsersPage() {
           <Field label={t('users.password')}>
             <Input type="password" value={newUser.password} onChange={(e) => setNewUser((s) => ({ ...s, password: e.target.value }))} />
           </Field>
-          <Field label="Role">
+          <Field label={t('users.role')}>
             <Select value={newUser.role} onChange={(e) => setNewUser((s) => ({ ...s, role: e.target.value }))}>
               <option value="modify">{t('users.roleModify')}</option>
               <option value="monitor">{t('users.roleMonitor')}</option>

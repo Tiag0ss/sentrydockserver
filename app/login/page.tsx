@@ -43,7 +43,6 @@ export default function LoginPage() {
           <LanguageSwitcher compact />
         </div>
         <p style={{ margin: 0, color: 'var(--sd-muted)', fontSize: 14 }}>{t('login.subtitle')}</p>
-        <p style={{ margin: 0, color: 'var(--sd-muted)', fontSize: 12 }}>{t('login.defaultHint')}</p>
         <Field label={t('login.username')}>
           <Input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
         </Field>

@@ -300,7 +300,7 @@ export default function AgentsPage() {
             <Field label={t('agents.name')}>
               <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
             </Field>
-            <Field label="Transport">
+            <Field label={t('agents.transport')}>
               <Select value={transport} onChange={(e) => setTransport(e.target.value)}>
                 <option value="ws">WebSocket</option>
                 <option value="grpc">gRPC</option>

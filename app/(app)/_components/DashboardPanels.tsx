@@ -344,7 +344,7 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
           </div>
           {upcoming.length === 0 ? (
             <Panel className="sd-entity-card">
-              <div className="sd-entity-meta" style={{ marginTop: 0 }}>{t('dashboard.noPolicies')}</div>
+              <div className="sd-entity-meta" style={{ marginTop: 0 }}>{t('dashboard.noUpcoming')}</div>
             </Panel>
           ) : (
             <div className="sd-entity-list">
