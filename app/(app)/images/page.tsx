@@ -8,6 +8,11 @@ import {
 } from '@/components/ui';
 import { IconButton, IconTrash, IconEdit, IconCheck } from '@/components/IconActions';
 import { SearchSelect, type SearchOption } from '../flows/_components/SearchSelect';
+import {
+  REGISTRY_PROVIDER_IDS,
+  REGISTRY_PROVIDERS,
+  type RegistryProviderId,
+} from '@/lib/registryProviders';
 
 type TargetMode = 'follow_tag' | 'pin_tag' | 'semver_range';
 
@@ -21,6 +26,7 @@ type DockerImage = {
   targetRange: string | null;
   allowPrerelease: boolean;
   secretId: string | null;
+  provider: string;
   placeholder: string;
 };
 
@@ -46,6 +52,7 @@ export default function ImagesPage() {
   const [targetRange, setTargetRange] = useState('');
   const [allowPrerelease, setAllowPrerelease] = useState(false);
   const [secretId, setSecretId] = useState('');
+  const [provider, setProvider] = useState<RegistryProviderId>('docker_hub');
 
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
@@ -148,6 +155,7 @@ export default function ImagesPage() {
     setTargetRange('');
     setAllowPrerelease(false);
     setSecretId('');
+    setProvider('docker_hub');
     setEditingId(null);
     setFormError('');
   }
@@ -174,6 +182,11 @@ export default function ImagesPage() {
     setTargetRange(r.targetRange || '');
     setAllowPrerelease(Boolean(r.allowPrerelease));
     setSecretId(r.secretId || '');
+    setProvider(
+      (REGISTRY_PROVIDER_IDS as readonly string[]).includes(r.provider)
+        ? (r.provider as RegistryProviderId)
+        : 'docker_hub',
+    );
     setMode('edit');
   }
 
@@ -182,6 +195,16 @@ export default function ImagesPage() {
     if (m === 'semver_range') return t('images.modeSemver');
     return t('images.modeFollow');
   }
+
+  function providerLabel(id: string) {
+    const key = `imageProviders.${id}`;
+    const v = t(key);
+    return v === key ? id : v;
+  }
+
+  const providerDef = REGISTRY_PROVIDERS[provider];
+  const providerHintKey = `imageProviderHints.${providerDef.hintKey}`;
+  const providerHint = t(providerHintKey) === providerHintKey ? '' : t(providerHintKey);
 
   async function save() {
     setFormError('');
@@ -210,6 +233,7 @@ export default function ImagesPage() {
       targetRange: targetMode === 'semver_range' ? targetRange.trim() : null,
       allowPrerelease: targetMode === 'semver_range' ? allowPrerelease : false,
       secretId: secretId || null,
+      provider,
     };
     setSaving(true);
     try {
@@ -278,6 +302,7 @@ export default function ImagesPage() {
                       : r.repository}
                 </span>
                 <span className="sd-chip sd-chip-muted">{modeLabel(r.targetMode)}</span>
+                <span className="sd-chip sd-chip-muted">{providerLabel(r.provider || 'docker_hub')}</span>
               </div>
               <div className="sd-entity-actions">
                 <IconButton
@@ -342,14 +367,33 @@ export default function ImagesPage() {
           <Field label={t('images.name')}>
             <Input value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />
           </Field>
+          <Field label={t('images.provider')}>
+            <select
+              className="sd-input"
+              value={provider}
+              onChange={(e) => setProvider(e.target.value as RegistryProviderId)}
+            >
+              {REGISTRY_PROVIDER_IDS.map((id) => (
+                <option key={id} value={id}>{providerLabel(id)}</option>
+              ))}
+            </select>
+          </Field>
+          {providerHint ? (
+            <div style={{ fontSize: 12, color: 'var(--sd-muted)' }}>{providerHint}</div>
+          ) : null}
           <Field label={t('images.repository')}>
             <Input
               value={repository}
-              placeholder="ghcr.io/org/myapp"
+              placeholder={providerDef.repositoryPlaceholder}
               onChange={(e) => setRepository(e.target.value)}
               autoComplete="off"
             />
           </Field>
+          {providerDef.serverEditable && repository.trim() && !/^[a-z0-9.-]+\.[a-z]{2,}(:\d+)?\//i.test(repository.trim()) ? (
+            <div style={{ fontSize: 12, color: 'var(--sd-muted)' }}>
+              {t('images.repoHostHint')}
+            </div>
+          ) : null}
           <Field label={t('images.targetMode')}>
             <select
               className="sd-input"

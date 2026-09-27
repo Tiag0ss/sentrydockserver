@@ -8,6 +8,12 @@ import { agentGateway } from './agentGateway';
 import { resolveDesiredImageRef, splitImageRef, type TargetMode } from './imageTarget';
 import { AppError } from '../utils/errors';
 import logger from '../utils/logger';
+import {
+  defaultServerForProvider,
+  inferProviderFromRepository,
+  isRegistryProviderId,
+  type RegistryProviderId,
+} from '../../lib/registryProviders';
 
 export type RegistryAuthPayload = {
   username: string;
@@ -24,6 +30,7 @@ export type DockerImageInput = {
   targetRange?: string | null;
   allowPrerelease?: boolean;
   secretId?: string | null;
+  provider?: string | null;
 };
 
 function normalizeKey(raw: string): string {
@@ -45,7 +52,18 @@ function assertSecret(secretId: string | null | undefined) {
   }
 }
 
+function resolveProvider(
+  providerInput: string | null | undefined,
+  repository: string,
+  existing?: string | null,
+): RegistryProviderId {
+  if (isRegistryProviderId(providerInput || '')) return providerInput as RegistryProviderId;
+  if (isRegistryProviderId(existing || '')) return existing as RegistryProviderId;
+  return inferProviderFromRepository(repository);
+}
+
 function toPublic(row: NonNullable<ReturnType<typeof imagesRepo.findById>>) {
+  const provider = resolveProvider(row.provider, row.repository);
   return {
     id: row.id,
     key: row.key,
@@ -56,6 +74,7 @@ function toPublic(row: NonNullable<ReturnType<typeof imagesRepo.findById>>) {
     targetRange: row.targetRange,
     allowPrerelease: Boolean(row.allowPrerelease),
     secretId: row.secretId,
+    provider,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     placeholder: `SD_IMAGE_${row.key}`,
@@ -89,6 +108,7 @@ export async function createDockerImage(input: DockerImageInput, actor: string) 
   if (imagesRepo.findByKey(key)) throw new AppError(409, 'key already exists', 'conflict');
   const secretId = input.secretId ? String(input.secretId) : null;
   assertSecret(secretId);
+  const provider = resolveProvider(input.provider, repository);
   const now = new Date();
   const id = uuid();
   const mode = (input.targetMode as TargetMode) || 'follow_tag';
@@ -109,6 +129,7 @@ export async function createDockerImage(input: DockerImageInput, actor: string) 
     targetRange: input.targetRange != null ? String(input.targetRange).trim() || null : null,
     allowPrerelease: Boolean(input.allowPrerelease),
     secretId,
+    provider,
     createdAt: now,
     updatedAt: now,
   });
@@ -140,6 +161,11 @@ export async function updateDockerImage(id: string, input: Partial<DockerImageIn
   if (targetMode === 'pin_tag' && !targetTag) {
     throw new AppError(400, 'targetTag required for pin_tag', 'validation');
   }
+  const provider = resolveProvider(
+    input.provider !== undefined ? input.provider : existing.provider,
+    repository,
+    existing.provider,
+  );
   imagesRepo.update(id, {
     key,
     name,
@@ -153,6 +179,7 @@ export async function updateDockerImage(id: string, input: Partial<DockerImageIn
       ? Boolean(input.allowPrerelease)
       : existing.allowPrerelease,
     secretId,
+    provider,
     updatedAt: new Date(),
   });
   await audit({ actor, action: 'docker_image.updated', entity: 'docker_image', entityId: id });
@@ -183,19 +210,52 @@ export function getRegistryAuth(secretId?: string | null): RegistryAuthPayload |
       return undefined;
     }
     let serveraddress = String(raw.serveraddress ?? raw.server ?? '').replace(/\r/g, '').trim();
-    if (!serveraddress
+    const isHubAlias = !serveraddress
       || /^(docker\.io|index\.docker\.io|registry-1\.docker\.io|hub\.docker\.com)(:|\/|$)/i.test(serveraddress)
-      || /^https?:\/\/(docker\.io|index\.docker\.io|registry-1\.docker\.io|hub\.docker\.com)\b/i.test(serveraddress)
-    ) {
+      || /^https?:\/\/(docker\.io|index\.docker\.io|registry-1\.docker\.io|hub\.docker\.com)\b/i.test(serveraddress);
+    if (isHubAlias && serveraddress) {
       serveraddress = 'https://index.docker.io/v1/';
+    } else if (!serveraddress) {
+      serveraddress = '';
+    } else if (/^crg\.apkg\.io\b/i.test(serveraddress) || /^https?:\/\/crg\.apkg\.io\b/i.test(serveraddress)) {
+      serveraddress = 'https://crg.apkg.io';
     } else if (!/^https?:\/\//i.test(serveraddress)) {
       serveraddress = `https://${serveraddress}`;
     }
-    return { username, password, serveraddress };
+    return {
+      username,
+      password,
+      ...(serveraddress ? { serveraddress } : {}),
+    };
   } catch {
     logger.warn('invalid registry secret JSON', { secretId });
     return undefined;
   }
+}
+
+/**
+ * Auth for a catalog image: secret credentials + provider default host when secret has no server.
+ */
+export function getRegistryAuthForImage(opts: {
+  secretId?: string | null;
+  provider?: string | null;
+  repository?: string | null;
+}): RegistryAuthPayload | undefined {
+  const auth = getRegistryAuth(opts.secretId);
+  if (!auth) return undefined;
+  if (auth.serveraddress) return auth;
+  const provider = resolveProvider(opts.provider, opts.repository || '');
+  const fromProvider = defaultServerForProvider(provider);
+  if (fromProvider) return { ...auth, serveraddress: fromProvider };
+
+  // Self-hosted (gitea / harbor / custom): prefer host from repository path.
+  const repoHost = String(opts.repository || '').trim().split('/')[0] || '';
+  if (repoHost.includes('.') || repoHost.includes(':')) {
+    const server = /^https?:\/\//i.test(repoHost) ? repoHost : `https://${repoHost}`;
+    return { ...auth, serveraddress: server };
+  }
+
+  return { ...auth, serveraddress: 'https://index.docker.io/v1/' };
 }
 
 /** Find `${SD_IMAGE_key}` / `$SD_IMAGE_key` placeholders in compose YAML. */
@@ -209,8 +269,13 @@ export function scanSdImageKeys(yamlText: string): string[] {
   return [...keys];
 }
 
-async function listTagsForRepo(repository: string, secretId: string | null, preferAgentId?: string) {
-  const auth = getRegistryAuth(secretId);
+async function listTagsForRepo(
+  repository: string,
+  secretId: string | null,
+  preferAgentId?: string,
+  provider?: string | null,
+) {
+  const auth = getRegistryAuthForImage({ secretId, provider, repository });
   const candidates = preferAgentId
     ? [preferAgentId, ...agentsRepo.list().map((a) => a.id).filter((id) => id !== preferAgentId)]
     : agentsRepo.list().map((a) => a.id);
@@ -243,11 +308,13 @@ export async function resolveCatalogImageRef(
   key: string;
   imageRef: string;
   secretId: string | null;
+  provider: string;
   mode: string;
 }> {
   const byId = imagesRepo.findById(imageIdOrKey);
   const row = byId || imagesRepo.findByKey(normalizeKey(imageIdOrKey));
   if (!row) throw new AppError(404, 'image not found', 'not_found');
+  const provider = resolveProvider(row.provider, row.repository);
 
   const resolved = await resolveDesiredImageRef(
     {
@@ -258,7 +325,7 @@ export async function resolveCatalogImageRef(
       allowPrerelease: row.allowPrerelease,
     },
     row.targetMode === 'semver_range'
-      ? () => listTagsForRepo(row.repository, row.secretId, opts?.preferAgentId)
+      ? () => listTagsForRepo(row.repository, row.secretId, opts?.preferAgentId, provider)
       : undefined,
   );
 
@@ -267,6 +334,7 @@ export async function resolveCatalogImageRef(
     key: row.key,
     imageRef: resolved.imageRef,
     secretId: row.secretId,
+    provider,
     mode: resolved.mode,
   };
 }
@@ -301,7 +369,11 @@ export async function probeDockerImage(imageId: string): Promise<{
     };
   }
 
-  const auth = getRegistryAuth(row.secretId);
+  const auth = getRegistryAuthForImage({
+    secretId: row.secretId,
+    provider: row.provider,
+    repository: row.repository,
+  });
   const agents = agentsRepo.list();
   const online = agents.filter((a) => agentGateway.isOnline(a.id));
   if (!online.length) {
@@ -373,7 +445,11 @@ export async function resolveSdImageEnvForYaml(
     }
     const resolved = await resolveCatalogImageRef(row.id, { preferAgentId });
     env[`SD_IMAGE_${key}`] = resolved.imageRef;
-    const auth = getRegistryAuth(resolved.secretId);
+    const auth = getRegistryAuthForImage({
+      secretId: resolved.secretId,
+      provider: resolved.provider,
+      repository: row.repository,
+    });
     if (auth?.username) {
       const server = auth.serveraddress || 'https://index.docker.io/v1/';
       authByServer.set(server, auth);
@@ -564,6 +640,7 @@ export async function syncDockerImagesFromAgents(actor: string, agentIds?: strin
       targetRange: null,
       allowPrerelease: false,
       secretId: null,
+      provider: inferProviderFromRepository(img.repository),
     }, actor);
     created.push(row);
     existingRepos.add(img.repository.toLowerCase());

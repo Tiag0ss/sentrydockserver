@@ -51,6 +51,12 @@
       "NotNullable": false
     },
     {
+      "FieldName": "provider",
+      "DataType": "varchar(32)",
+      "NotNullable": true,
+      "DefaultValue": "docker_hub"
+    },
+    {
       "FieldName": "created_at",
       "DataType": "integer",
       "NotNullable": true

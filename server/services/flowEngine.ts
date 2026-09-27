@@ -13,7 +13,7 @@ import {
   splitImageRef,
   targetInputFromNodeAndCtx,
 } from './imageTarget';
-import { getRegistryAuth, resolveCatalogImageRef } from './imagesService';
+import { getRegistryAuthForImage, resolveCatalogImageRef } from './imagesService';
 import { deployComposeProject } from './composeService';
 import { imagesRepo } from '../repositories/imagesRepo';
 import { composeProjectsRepo } from '../repositories/composeRepo';
@@ -758,18 +758,24 @@ async function resolveNodeImage(
   nodeData: Record<string, unknown>,
   ctx: RunContext,
   preferAgentId?: string,
-): Promise<{ image: string; secretId: string | null; fromCatalog: boolean }> {
+): Promise<{ image: string; secretId: string | null; provider: string | null; fromCatalog: boolean }> {
   const imageId = String(nodeData.imageId || ctx.imageId || '').trim();
   if (imageId) {
     const resolved = await resolveCatalogImageRef(imageId, { preferAgentId });
     ctx.image = resolved.imageRef;
     ctx.imageId = resolved.id;
     if (resolved.secretId) ctx.secretId = resolved.secretId;
-    return { image: resolved.imageRef, secretId: resolved.secretId, fromCatalog: true };
+    return {
+      image: resolved.imageRef,
+      secretId: resolved.secretId,
+      provider: resolved.provider,
+      fromCatalog: true,
+    };
   }
   return {
     image: String(nodeData.image || ctx.image || ''),
     secretId: String(nodeData.secretId || ctx.secretId || '') || null,
+    provider: null,
     fromCatalog: false,
   };
 }
@@ -840,7 +846,11 @@ async function executeNode(
 
           const preferAgent = selected[0]?.agentId;
           const catalog = await resolveNodeImage(node.data, ctx, preferAgent);
-          const auth = getRegistryAuth(catalog.secretId);
+          const auth = getRegistryAuthForImage({
+            secretId: catalog.secretId,
+            provider: catalog.provider,
+            repository: catalog.image,
+          });
           const targetInput = catalog.fromCatalog
             ? {
               image: catalog.image,
@@ -1040,7 +1050,11 @@ async function executeNode(
                 targetInput.targetMode === 'semver_range'
                   ? async () => {
                     const { repo } = splitImageRef(targetInput.image);
-                    const auth = getRegistryAuth(catalog.secretId);
+                    const auth = getRegistryAuthForImage({
+                      secretId: catalog.secretId,
+                      provider: catalog.provider,
+                      repository: catalog.image,
+                    });
                     const res = await agentGateway.sendCommand(
                       agentId,
                       'image.listTags',
@@ -1060,7 +1074,11 @@ async function executeNode(
               err: err instanceof Error ? err.message : String(err),
             });
           }
-          const auth = getRegistryAuth(catalog.secretId);
+          const auth = getRegistryAuthForImage({
+            secretId: catalog.secretId,
+            provider: catalog.provider,
+            repository: catalog.image,
+          });
           // save previous image id (for digest compare) + name:tag (for recreate/rollback)
           if (ctx.containerName) {
             try {

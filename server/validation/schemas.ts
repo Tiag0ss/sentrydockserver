@@ -203,6 +203,9 @@ export const createDockerImageSchema = z.object({
   targetRange: z.string().nullable().optional(),
   allowPrerelease: z.boolean().optional(),
   secretId: z.string().nullable().optional(),
+  provider: z.enum([
+    'docker_hub', 'ghcr', 'gitea', 'gitlab', 'bitbucket', 'harbor', 'custom',
+  ]).optional(),
 });
 
 export const updateDockerImageSchema = z.object({
@@ -214,4 +217,7 @@ export const updateDockerImageSchema = z.object({
   targetRange: z.string().nullable().optional(),
   allowPrerelease: z.boolean().optional(),
   secretId: z.string().nullable().optional(),
+  provider: z.enum([
+    'docker_hub', 'ghcr', 'gitea', 'gitlab', 'bitbucket', 'harbor', 'custom',
+  ]).optional(),
 });

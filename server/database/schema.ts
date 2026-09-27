@@ -210,6 +210,7 @@ export const dockerImages = sqliteTable('docker_images', {
   targetRange: text('target_range'),
   allowPrerelease: integer('allow_prerelease', { mode: 'boolean' }).notNull().default(false),
   secretId: text('secret_id'),
+  provider: text('provider').notNull().default('docker_hub'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 });
