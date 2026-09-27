@@ -147,13 +147,7 @@ function StepDetailBlock({
     );
   }
 
-  if (detail.updateAvailable != null) {
-    rows.push(
-      <DetailRow key="reason" label={t('runs.detailReason')}>
-        {detail.updateAvailable ? t('runs.detailUpdateYes') : t('runs.detailUpdateNo')}
-      </DetailRow>,
-    );
-  } else if (detail.reason === 'digest_mismatch') {
+  if (detail.reason === 'digest_mismatch') {
     rows.push(
       <DetailRow key="reason" label={t('runs.detailReason')}>
         {t('runs.detailUpdateYes')}
@@ -163,6 +157,12 @@ function StepDetailBlock({
     rows.push(
       <DetailRow key="reason" label={t('runs.detailReason')}>
         {t('runs.detailUpdateNo')}
+      </DetailRow>,
+    );
+  } else if (detail.updateAvailable != null) {
+    rows.push(
+      <DetailRow key="reason" label={t('runs.detailReason')}>
+        {detail.updateAvailable ? t('runs.detailUpdateYes') : t('runs.detailUpdateNo')}
       </DetailRow>,
     );
   }

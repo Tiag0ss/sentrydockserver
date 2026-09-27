@@ -200,8 +200,13 @@ export function getRegistryAuth(secretId?: string | null): RegistryAuthPayload |
   if (!plainStr) return undefined;
   try {
     const raw = JSON.parse(plainStr) as Record<string, unknown>;
-    const username = String(raw.username ?? raw.user ?? '').replace(/\r/g, '').trim();
-    let password = String(raw.password ?? raw.token ?? raw.pass ?? '').replace(/\r/g, '').trim();
+    const scrub = (v: unknown) => String(v ?? '')
+      .replace(/^\uFEFF/, '')
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      .replace(/[\r\n\0]/g, '')
+      .trim();
+    const username = scrub(raw.username ?? raw.user);
+    let password = scrub(raw.password ?? raw.token ?? raw.pass);
     if (/^(bearer|basic)\s+/i.test(password)) {
       password = password.replace(/^(bearer|basic)\s+/i, '').trim();
     }
@@ -209,7 +214,7 @@ export function getRegistryAuth(secretId?: string | null): RegistryAuthPayload |
       logger.warn('registry secret missing username/password', { secretId });
       return undefined;
     }
-    let serveraddress = String(raw.serveraddress ?? raw.server ?? '').replace(/\r/g, '').trim();
+    let serveraddress = scrub(raw.serveraddress ?? raw.server);
     const isHubAlias = !serveraddress
       || /^(docker\.io|index\.docker\.io|registry-1\.docker\.io|hub\.docker\.com)(:|\/|$)/i.test(serveraddress)
       || /^https?:\/\/(docker\.io|index\.docker\.io|registry-1\.docker\.io|hub\.docker\.com)\b/i.test(serveraddress);

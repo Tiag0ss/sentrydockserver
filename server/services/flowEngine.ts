@@ -1005,7 +1005,8 @@ async function executeNode(
               image,
               targetMode: resolved.mode,
               selectedTag: resolved.selectedTag,
-              updateAvailable,
+              // Omit on failure so the UI does not show "Up to date" for auth errors.
+              ...(allFailed ? {} : { updateAvailable }),
               targetsCount: needUpdate.length,
               skippedCount: skipped.length,
               staleCount: staleErrors.length,
