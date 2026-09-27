@@ -122,3 +122,7 @@ Schema lives in `server/database/structure/systemtables/` (JSON). Startup adds m
 - [DEPLOYMENT.md](DEPLOYMENT.md) — TLS / reverse proxy
 - [protocol/PROTOCOL.md](protocol/PROTOCOL.md) — server ↔ agent messages
 - **SentryDockAgent** — Docker agent (separate repo)
+
+## License
+
+MIT
