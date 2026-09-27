@@ -6,7 +6,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 import {
   PageHeader, Button, Input, Field, EmptyState, Modal, Alert,
 } from '@/components/ui';
-import { IconButton, IconTrash, IconEdit } from '@/components/IconActions';
+import { IconButton, IconTrash, IconEdit, IconCheck } from '@/components/IconActions';
 import { SearchSelect, type SearchOption } from '../flows/_components/SearchSelect';
 
 type TargetMode = 'follow_tag' | 'pin_tag' | 'semver_range';
@@ -49,6 +49,9 @@ export default function ImagesPage() {
 
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
+  const [probingId, setProbingId] = useState<string | null>(null);
+  const [probeMsg, setProbeMsg] = useState('');
+  const [probeOk, setProbeOk] = useState<boolean | null>(null);
 
   async function load() {
     const [images, secs] = await Promise.all([
@@ -91,6 +94,46 @@ export default function ImagesPage() {
       setSyncing(false);
     }
   }
+  async function probeAccess(id: string, label: string) {
+    setListError('');
+    setProbeMsg('');
+    setProbeOk(null);
+    setProbingId(id);
+    try {
+      const res = await api<{
+        ok: boolean;
+        imageRef: string;
+        digest?: string;
+        source?: string;
+        agentName?: string;
+        usedSecret: boolean;
+        error?: string;
+      }>(`/docker-images/${encodeURIComponent(id)}/probe`, { method: 'POST', body: '{}' });
+      if (res.ok) {
+        setProbeOk(true);
+        setProbeMsg(t('images.probeOk', {
+          name: label,
+          image: res.imageRef,
+          digest: (res.digest || '').slice(0, 19) + ((res.digest || '').length > 19 ? '…' : ''),
+          agent: res.agentName || '—',
+          secret: res.usedSecret ? t('images.probeWithSecret') : t('images.probeNoSecret'),
+        }));
+      } else {
+        setProbeOk(false);
+        setProbeMsg(t('images.probeFail', {
+          name: label,
+          image: res.imageRef,
+          error: res.error || t('common.error'),
+        }));
+      }
+    } catch (e) {
+      setProbeOk(false);
+      setProbeMsg(e instanceof Error ? e.message : t('common.error'));
+    } finally {
+      setProbingId(null);
+    }
+  }
+
   const secretOptions: SearchOption[] = useMemo(
     () => secrets.map((s) => ({ value: s.id, label: s.name })),
     [secrets],
@@ -215,6 +258,11 @@ export default function ImagesPage() {
       />
       {listError ? <Alert>{listError}</Alert> : null}
       {syncMsg ? <Alert>{syncMsg}</Alert> : null}
+      {probeMsg ? (
+        <Alert tone={probeOk === false ? 'error' : probeOk ? 'ok' : 'warn'}>
+          {probeOk === false ? `✗ ${probeMsg}` : probeOk ? `✓ ${probeMsg}` : probeMsg}
+        </Alert>
+      ) : null}
       {rows.length === 0 ? <EmptyState>{t('images.empty')}</EmptyState> : (
         <div className="sd-secret-list">
           {rows.map((r) => (
@@ -232,6 +280,13 @@ export default function ImagesPage() {
                 <span className="sd-chip sd-chip-muted">{modeLabel(r.targetMode)}</span>
               </div>
               <div className="sd-entity-actions">
+                <IconButton
+                  label={probingId === r.id ? t('images.probing') : t('images.probe')}
+                  disabled={probingId !== null}
+                  onClick={() => { void probeAccess(r.id, r.name); }}
+                >
+                  <IconCheck />
+                </IconButton>
                 <IconButton label={t('images.edit')} onClick={() => openEdit(r)}>
                   <IconEdit />
                 </IconButton>
@@ -255,6 +310,15 @@ export default function ImagesPage() {
         footer={(
           <>
             <Button variant="ghost" onClick={closeModal}>{t('common.cancel')}</Button>
+            {mode === 'edit' && editingId ? (
+              <Button
+                variant="ghost"
+                disabled={probingId !== null || saving}
+                onClick={() => { void probeAccess(editingId, name.trim() || editingId); }}
+              >
+                {probingId === editingId ? t('images.probing') : t('images.probe')}
+              </Button>
+            ) : null}
             <Button disabled={!canSubmit || saving} onClick={() => { void save(); }}>
               {saving ? t('common.loading') : t('common.save')}
             </Button>

@@ -277,11 +277,12 @@ export default function SecretsPage() {
               <Field label={t('secrets.serverOptional')}>
                 <Input
                   value={server}
-                  placeholder="ghcr.io"
+                  placeholder={t('secrets.serverPlaceholder')}
                   onChange={(e) => setServer(e.target.value)}
                   autoComplete="off"
                 />
               </Field>
+              <div style={{ fontSize: 12, color: 'var(--sd-muted)' }}>{t('secrets.registryHint')}</div>
             </>
           ) : (
             <Field label={t('secrets.value')}>

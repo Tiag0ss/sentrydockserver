@@ -172,7 +172,26 @@ export function getRegistryAuth(secretId?: string | null): RegistryAuthPayload |
   const plainStr = getSecretPlain(secretId);
   if (!plainStr) return undefined;
   try {
-    return JSON.parse(plainStr) as RegistryAuthPayload;
+    const raw = JSON.parse(plainStr) as Record<string, unknown>;
+    const username = String(raw.username ?? raw.user ?? '').replace(/\r/g, '').trim();
+    let password = String(raw.password ?? raw.token ?? raw.pass ?? '').replace(/\r/g, '').trim();
+    if (/^(bearer|basic)\s+/i.test(password)) {
+      password = password.replace(/^(bearer|basic)\s+/i, '').trim();
+    }
+    if (!username || !password) {
+      logger.warn('registry secret missing username/password', { secretId });
+      return undefined;
+    }
+    let serveraddress = String(raw.serveraddress ?? raw.server ?? '').replace(/\r/g, '').trim();
+    if (!serveraddress
+      || /^(docker\.io|index\.docker\.io|registry-1\.docker\.io|hub\.docker\.com)(:|\/|$)/i.test(serveraddress)
+      || /^https?:\/\/(docker\.io|index\.docker\.io|registry-1\.docker\.io|hub\.docker\.com)\b/i.test(serveraddress)
+    ) {
+      serveraddress = 'https://index.docker.io/v1/';
+    } else if (!/^https?:\/\//i.test(serveraddress)) {
+      serveraddress = `https://${serveraddress}`;
+    }
+    return { username, password, serveraddress };
   } catch {
     logger.warn('invalid registry secret JSON', { secretId });
     return undefined;
@@ -249,6 +268,84 @@ export async function resolveCatalogImageRef(
     imageRef: resolved.imageRef,
     secretId: row.secretId,
     mode: resolved.mode,
+  };
+}
+
+/**
+ * Verify the catalog image is reachable on the registry (via an online agent).
+ * Uses the image's secret when set — same auth path as check/pull.
+ */
+export async function probeDockerImage(imageId: string): Promise<{
+  ok: boolean;
+  imageRef: string;
+  digest?: string;
+  source?: string;
+  agentId?: string;
+  agentName?: string;
+  usedSecret: boolean;
+  error?: string;
+}> {
+  const row = imagesRepo.findById(imageId) || imagesRepo.findByKey(normalizeKey(imageId));
+  if (!row) throw new AppError(404, 'image not found', 'not_found');
+
+  let imageRef: string;
+  try {
+    const resolved = await resolveCatalogImageRef(row.id);
+    imageRef = resolved.imageRef;
+  } catch (err) {
+    return {
+      ok: false,
+      imageRef: row.repository,
+      usedSecret: Boolean(row.secretId),
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  const auth = getRegistryAuth(row.secretId);
+  const agents = agentsRepo.list();
+  const online = agents.filter((a) => agentGateway.isOnline(a.id));
+  if (!online.length) {
+    return {
+      ok: false,
+      imageRef,
+      usedSecret: Boolean(auth),
+      error: 'no online agent',
+    };
+  }
+
+  const errors: string[] = [];
+  for (const agent of online) {
+    try {
+      const res = await agentGateway.sendCommand(
+        agent.id,
+        'image.digest',
+        { image: imageRef, ...(auth ? { auth } : {}) },
+        120_000,
+      ) as { digest?: string; digests?: string[]; source?: string };
+      const digest = String(res.digest || res.digests?.[0] || '').trim();
+      if (!digest) {
+        errors.push(`${agent.name || agent.id}: empty digest`);
+        continue;
+      }
+      return {
+        ok: true,
+        imageRef,
+        digest,
+        source: res.source ? String(res.source) : undefined,
+        agentId: agent.id,
+        agentName: agent.name,
+        usedSecret: Boolean(auth),
+      };
+    } catch (err) {
+      errors.push(`${agent.name || agent.id}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  return {
+    ok: false,
+    imageRef,
+    usedSecret: Boolean(auth),
+    error: errors.join(' · ') || 'registry probe failed',
   };
 }
 

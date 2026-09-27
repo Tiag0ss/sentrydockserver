@@ -417,6 +417,10 @@ apiRouter.get('/docker-images/:id/running-containers', authRequired, requirePass
   res.json(await imagesService.listRunningContainersForImage(param(req)));
 }));
 
+apiRouter.post('/docker-images/:id/probe', authRequired, requirePasswordOk, requireModify, asyncHandler(async (req, res) => {
+  res.json(await imagesService.probeDockerImage(param(req)));
+}));
+
 apiRouter.post('/docker-images/:id/create-update-flow', authRequired, requirePasswordOk, requireModify, validateBody(createUpdateFlowFromImageSchema), asyncHandler(async (req, res) => {
   res.status(201).json(await flowsService.createUpdateFlowFromImage(
     param(req),
