@@ -690,6 +690,7 @@ export const en = {
     detailUpdateYes: 'Needs update — running image digest differs from the registry tag',
     detailUpdateNo: 'Up to date — running image matches the registry tag',
     detailDesiredDigest: 'Desired digest',
+    detailRegistryAuth: 'Registry auth',
     detailPreviousDigest: 'Previous digest',
     detailCondition: 'Condition',
     detailTrue: 'true',

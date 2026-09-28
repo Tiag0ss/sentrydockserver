@@ -692,6 +692,7 @@ export const fr: Messages = {
     detailUpdateYes: 'Mise à jour nécessaire — le digest de l’image en cours diffère de celui du registre',
     detailUpdateNo: 'À jour — l’image en cours correspond au tag du registre',
     detailDesiredDigest: 'Digest souhaité',
+    detailRegistryAuth: 'Auth registry',
     detailPreviousDigest: 'Digest précédent',
     detailCondition: 'Condition',
     detailTrue: 'vrai',

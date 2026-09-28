@@ -67,21 +67,16 @@ export async function listAgentContainers(agentId: string) {
 
 export async function listAgentImageTags(agentId: string, imageRepo: string, secretId?: string | null) {
   if (!imageRepo.trim()) throw new AppError(400, 'imageRepo required', 'validation');
-  let auth: unknown;
-  if (secretId) {
-    try {
-      const { getSecretPlain } = await import('./secretsService');
-      const plain = getSecretPlain(secretId);
-      if (plain) auth = JSON.parse(plain);
-    } catch {
-      auth = undefined;
-    }
-  }
+  const { getRegistryAuthForImage } = await import('./imagesService');
+  const auth = getRegistryAuthForImage({
+    secretId,
+    repository: imageRepo,
+  });
   try {
     return await agentGateway.sendCommand(
       agentId,
       'image.listTags',
-      { imageRepo, auth },
+      { imageRepo, ...(auth ? { auth } : {}) },
       120_000,
     );
   } catch (err) {

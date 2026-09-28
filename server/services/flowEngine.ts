@@ -849,8 +849,26 @@ async function executeNode(
           const auth = getRegistryAuthForImage({
             secretId: catalog.secretId,
             provider: catalog.provider,
-            repository: catalog.image,
+            repository: catalog.fromCatalog
+              ? splitImageRef(catalog.image).repo || catalog.image
+              : catalog.image,
           });
+          logger.info('check_image_update auth', {
+            fromCatalog: catalog.fromCatalog,
+            imageId: catalog.fromCatalog ? (ctx.imageId || node.data.imageId) : undefined,
+            secretId: catalog.secretId || null,
+            provider: catalog.provider || null,
+            hasAuth: Boolean(auth),
+            authUsername: auth?.username || null,
+            authServer: auth?.serveraddress || null,
+          });
+          if (catalog.secretId && !auth) {
+            logger.warn('check_image_update: image has secretId but auth could not be resolved', {
+              secretId: catalog.secretId,
+              provider: catalog.provider,
+              image: catalog.image,
+            });
+          }
           const targetInput = catalog.fromCatalog
             ? {
               image: catalog.image,
@@ -879,7 +897,7 @@ async function executeNode(
                     const res = await agentGateway.sendCommand(
                       preferAgent,
                       'image.listTags',
-                      { imageRepo: repo, auth },
+                      { imageRepo: repo, ...(auth ? { auth } : {}) },
                       120_000,
                     ) as { tags?: string[] };
                     return res.tags || [];
@@ -932,7 +950,7 @@ async function executeNode(
                   id: target.containerName,
                   containerId: target.containerName,
                   image,
-                  auth,
+                  ...(auth ? { auth } : {}),
                 },
                 300_000,
               ) as {
@@ -1007,6 +1025,8 @@ async function executeNode(
               selectedTag: resolved.selectedTag,
               // Omit on failure so the UI does not show "Up to date" for auth errors.
               ...(allFailed ? {} : { updateAvailable }),
+              usedSecret: Boolean(auth),
+              provider: catalog.provider || undefined,
               targetsCount: needUpdate.length,
               skippedCount: skipped.length,
               staleCount: staleErrors.length,
@@ -1059,7 +1079,7 @@ async function executeNode(
                     const res = await agentGateway.sendCommand(
                       agentId,
                       'image.listTags',
-                      { imageRepo: repo, auth },
+                      { imageRepo: repo, ...(auth ? { auth } : {}) },
                       120_000,
                     ) as { tags?: string[] };
                     return res.tags || [];
@@ -1078,7 +1098,9 @@ async function executeNode(
           const auth = getRegistryAuthForImage({
             secretId: catalog.secretId,
             provider: catalog.provider,
-            repository: catalog.image,
+            repository: catalog.fromCatalog
+              ? splitImageRef(catalog.image).repo || catalog.image
+              : catalog.image,
           });
           // save previous image id (for digest compare) + name:tag (for recreate/rollback)
           if (ctx.containerName) {
@@ -1106,12 +1128,17 @@ async function executeNode(
               });
             }
           }
-          await agentGateway.sendCommand(agentId, 'docker.pull', { image, auth });
+          await agentGateway.sendCommand(agentId, 'docker.pull', {
+            image,
+            ...(auth ? { auth } : {}),
+          });
           await upsertStep(runId, node.id, branchId, 'success', {
             finishedAt: new Date(),
             detailJson: detailJson({
               agentId,
               image,
+              usedSecret: Boolean(auth),
+              provider: catalog.provider || undefined,
               containerName: ctx.containerName ? String(ctx.containerName) : undefined,
               previousDigest: ctx.previousDigest ? String(ctx.previousDigest) : undefined,
               previousImage: ctx.previousImage ? String(ctx.previousImage) : undefined,

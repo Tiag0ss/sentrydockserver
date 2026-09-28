@@ -22,6 +22,8 @@ type StepDetail = {
   desiredDigest?: string;
   updateAvailable?: boolean;
   reason?: string;
+  usedSecret?: boolean;
+  provider?: string;
   branch?: string;
   field?: string;
   value?: boolean;
@@ -178,6 +180,24 @@ function StepDetailBlock({
     rows.push(
       <DetailRow key="image" label={t('contextFields.image')}>
         {detail.image}
+      </DetailRow>,
+    );
+  }
+  if (detail.provider) {
+    rows.push(
+      <DetailRow key="provider" label={t('images.provider')}>
+        {(() => {
+          const key = `imageProviders.${detail.provider}`;
+          const v = t(key);
+          return v === key ? detail.provider : v;
+        })()}
+      </DetailRow>,
+    );
+  }
+  if (detail.usedSecret != null) {
+    rows.push(
+      <DetailRow key="secret" label={t('runs.detailRegistryAuth')}>
+        {detail.usedSecret ? t('images.probeWithSecret') : t('images.probeNoSecret')}
       </DetailRow>,
     );
   }

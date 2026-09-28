@@ -3,7 +3,7 @@ import { v4 as uuid } from 'uuid';
 import { nextCronDate, inBlackout } from './cronUtils';
 import { agentGateway } from './agentGateway';
 import { startFlowRun } from './flowEngine';
-import { getSecretPlain } from './secretsService';
+import { getRegistryAuth } from './imagesService';
 import { audit } from './audit';
 import logger from '../utils/logger';
 import {
@@ -158,13 +158,7 @@ export async function runPolicyCheck(policyId: string) {
   const watch = watchesRepo.findById(policy.watchId);
   if (!watch) throw new Error('Watch not found');
 
-  let auth;
-  if (watch.secretId) {
-    const plain = getSecretPlain(watch.secretId);
-    if (plain) {
-      try { auth = JSON.parse(plain); } catch { logger.warn('bad secret json', { secretId: watch.secretId }); }
-    }
-  }
+  const auth = watch.secretId ? getRegistryAuth(watch.secretId) : undefined;
 
   const check = await agentGateway.sendCommand(watch.agentId, 'image.checkUpdate', {
     id: watch.containerName,

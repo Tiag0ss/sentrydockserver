@@ -692,6 +692,7 @@ export const ptPT: Messages = {
     detailUpdateYes: 'Precisa de actualização — o digest da imagem em execução difere do da registry',
     detailUpdateNo: 'Actualizado — a imagem em execução corresponde à tag da registry',
     detailDesiredDigest: 'Digest desejado',
+    detailRegistryAuth: 'Auth de registry',
     detailPreviousDigest: 'Digest anterior',
     detailCondition: 'Condição',
     detailTrue: 'verdadeiro',

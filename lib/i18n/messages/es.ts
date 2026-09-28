@@ -692,6 +692,7 @@ export const es: Messages = {
     detailUpdateYes: 'Necesita actualización — el digest de la imagen en ejecución difiere del de la registry',
     detailUpdateNo: 'Actualizado — la imagen en ejecución coincide con el tag de la registry',
     detailDesiredDigest: 'Digest deseado',
+    detailRegistryAuth: 'Auth de registry',
     detailPreviousDigest: 'Digest anterior',
     detailCondition: 'Condición',
     detailTrue: 'verdadero',
