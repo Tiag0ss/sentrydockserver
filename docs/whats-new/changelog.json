@@ -1,0 +1,75 @@
+{
+  "versions": [
+    {
+      "version": "0.1.0",
+      "date": "2026-09-23",
+      "title": "Initial release",
+      "items": [
+        "Control plane with agents, flows, runs, secrets, and webhooks",
+        "Outbound WebSocket/gRPC agent protocol for Docker and Compose",
+        "Dashboard, scheduling, notifications, and multi-language UI"
+      ]
+    },
+    {
+      "version": "0.2.0",
+      "date": "2026-09-27",
+      "title": "Docker images, Compose flows, and panel polish",
+      "items": [
+        "Enhance Docker image management features",
+        "Add Image Access Probing Functionality and UI Enhancements",
+        "Update Dockerfile to Change Database Migrations Path",
+        "Update Woodpecker CI Configuration and Dockerfile for Dependency Management",
+        "Add Woodpecker CI/CD Configuration and Update README",
+        "Enhance SQLite Encryption Support and Update Documentation",
+        "Implement Compose Node Configuration and Path Management",
+        "Enhance Flow Creation from Docker Images",
+        "Refactor SentryDock naming and enhance documentation",
+        "Update Internationalization and Dashboard Messages",
+        "Add ESLint Configuration and Update Package Dependencies",
+        "Implement Live Updates for Runs Page and Enhance Flow Engine Notifications",
+        "Enhance Runs Page with Filtering and Pagination Features",
+        "Update Webhook Descriptions and Enhance Flow Engine Error Handling",
+        "Enhance Run Detail Page with Edit Flow Functionality",
+        "Enhance Flow Components and Styling",
+        "Enhance Dashboard and Flow Functionality",
+        "Enhance ComposePage with Search and Duplicate Functionality",
+        "Enhance Compose and Flows Functionality",
+        "Add Database Reset Script and Enhance UI Components",
+        "Implement Policies Management and Enhance Dashboard Functionality",
+        "Update internationalization messages and enhance image update checks",
+        "Implement rerun functionality for runs with error handling and UI updates",
+        "Refactor database handling and enhance notifications system"
+      ]
+    },
+    {
+      "version": "0.2.1",
+      "date": "2026-09-27",
+      "title": "Registry auth sanitization",
+      "items": [
+        "Refactor update handling in StepDetailBlock and improve registry auth data sanitization"
+      ]
+    },
+    {
+      "version": "0.2.2",
+      "date": "2026-09-28",
+      "title": "MIT license",
+      "items": [
+        "Add MIT License and update README to include license information"
+      ]
+    },
+    {
+      "version": "0.2.3",
+      "date": "2026-10-21",
+      "title": "Container metrics, update-flow notifications, and What’s New",
+      "items": [
+        "Dashboard and agent detail: containers grouped by agent with CPU/memory sparklines",
+        "Configurable metrics interval and retention; history stored on the server",
+        "Start, stop, and restart containers from the dashboard",
+        "Live metrics and container state updates over WebSocket",
+        "Auto update flows: IF branches for success/failure notifications after join",
+        "wait_healthy timeouts report as failed instead of success",
+        "What’s New modal since last seen app version (dashboard + user menu)"
+      ]
+    }
+  ]
+}

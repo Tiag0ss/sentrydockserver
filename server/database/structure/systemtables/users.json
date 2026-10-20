@@ -34,6 +34,11 @@
       "FieldName": "created_at",
       "DataType": "integer",
       "NotNullable": true
+    },
+    {
+      "FieldName": "last_seen_app_version",
+      "DataType": "varchar(32)",
+      "NotNullable": false
     }
   ]
 }

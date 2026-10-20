@@ -863,4 +863,12 @@ export const ptPT: Messages = {
     modify: 'Modify',
     monitor: 'Monitor',
   },
+  whatsNew: {
+    title: 'Novidades',
+    sinceLastVisit: 'Novidades desde a tua última visita',
+    currentVersion: 'Versão actual: {version}',
+    empty: 'Sem notas de versão para mostrar.',
+    gotIt: 'Percebi',
+    saving: 'A guardar…',
+  },
 };

@@ -490,6 +490,32 @@ button, input, select, textarea { font: inherit; }
 .sd-agent-containers-title.sd-entity-link:hover {
   color: var(--sd-accent);
 }
+
+.sd-whats-new-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-height: min(55vh, 480px);
+  overflow: auto;
+  padding-right: 4px;
+}
+.sd-whats-new-entry-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.sd-whats-new-items {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--sd-text);
+}
+.sd-whats-new-items li + li {
+  margin-top: 4px;
+}
 .sd-meter {
   margin-top: 4px;
 }
@@ -675,7 +701,7 @@ button, input, select, textarea { font: inherit; }
   inset: 0;
   background: rgba(15, 23, 42, 0.45);
   backdrop-filter: blur(3px);
-  z-index: 100;
+  z-index: 1000;
   display: flex;
   align-items: flex-start;
   justify-content: center;

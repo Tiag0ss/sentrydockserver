@@ -35,8 +35,18 @@ export const usersRepo = {
     passwordHash: string;
     role: string;
     mustChangePassword: boolean;
+    lastSeenAppVersion: string | null;
   }>) {
     db.update(users).set(patch).where(eq(users.id, id)).run();
+  },
+  getLastSeenAppVersion(id: string): string | null {
+    const row = db.select({
+      lastSeenAppVersion: users.lastSeenAppVersion,
+    }).from(users).where(eq(users.id, id)).get();
+    return row?.lastSeenAppVersion ?? null;
+  },
+  setLastSeenAppVersion(id: string, version: string) {
+    db.update(users).set({ lastSeenAppVersion: version }).where(eq(users.id, id)).run();
   },
   delete(id: string) {
     db.delete(users).where(eq(users.id, id)).run();

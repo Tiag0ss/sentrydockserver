@@ -7,6 +7,8 @@ import { api, clearToken } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { LanguageSwitcher } from '@/lib/i18n/LanguageSwitcher';
 import { ThemeControls } from '@/components/ui';
+import { WhatsNewModal } from '@/components/WhatsNewModal';
+import { fetchWhatsNew, type WhatsNewEntry } from '@/lib/whatsNew';
 
 type Me = { id: string; username: string; role: string };
 
@@ -16,6 +18,10 @@ export function UserMenu() {
   const [open, setOpen] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
+  const [whatsNewEntries, setWhatsNewEntries] = useState<WhatsNewEntry[]>([]);
+  const [whatsNewCurrentVersion, setWhatsNewCurrentVersion] = useState('');
+  const [whatsNewLoading, setWhatsNewLoading] = useState(false);
 
   useEffect(() => {
     void api<{ user: Me }>('/auth/me')
@@ -47,6 +53,21 @@ export function UserMenu() {
     clearToken();
     setOpen(false);
     router.push('/login');
+  }
+
+  async function openWhatsNewFromMenu() {
+    setOpen(false);
+    setWhatsNewLoading(true);
+    try {
+      const payload = await fetchWhatsNew({ full: true });
+      setWhatsNewCurrentVersion(payload.currentVersion);
+      setWhatsNewEntries(payload.entries);
+      setWhatsNewOpen(true);
+    } catch {
+      /* ignore — menu stays usable */
+    } finally {
+      setWhatsNewLoading(false);
+    }
   }
 
   return (
@@ -90,6 +111,15 @@ export function UserMenu() {
           </div>
 
           <div className="sd-user-dropdown-links">
+            <button
+              type="button"
+              className="sd-user-dropdown-link"
+              disabled={whatsNewLoading}
+              onClick={() => { void openWhatsNewFromMenu(); }}
+              style={{ width: '100%', textAlign: 'left', background: 'none', border: 0, cursor: 'pointer' }}
+            >
+              {whatsNewLoading ? t('common.loading') : t('whatsNew.title')}
+            </button>
             <Link href="/users" className="sd-user-dropdown-link" onClick={() => setOpen(false)}>
               {t('nav.users')}
             </Link>
@@ -119,6 +149,14 @@ export function UserMenu() {
           </button>
         </div>
       ) : null}
+
+      <WhatsNewModal
+        open={whatsNewOpen}
+        mode="full"
+        currentVersion={whatsNewCurrentVersion}
+        entries={whatsNewEntries}
+        onClose={() => setWhatsNewOpen(false)}
+      />
     </div>
   );
 }

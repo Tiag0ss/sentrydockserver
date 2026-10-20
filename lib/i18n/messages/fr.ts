@@ -863,4 +863,12 @@ export const fr: Messages = {
     modify: 'Modify',
     monitor: 'Monitor',
   },
+  whatsNew: {
+    title: 'Nouveautés',
+    sinceLastVisit: 'Nouveautés depuis votre dernière visite',
+    currentVersion: 'Version actuelle : {version}',
+    empty: 'Aucune note de version à afficher.',
+    gotIt: 'Compris',
+    saving: 'Enregistrement…',
+  },
 };

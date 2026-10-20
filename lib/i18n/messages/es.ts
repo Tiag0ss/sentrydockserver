@@ -863,4 +863,12 @@ export const es: Messages = {
     modify: 'Modify',
     monitor: 'Monitor',
   },
+  whatsNew: {
+    title: 'Novedades',
+    sinceLastVisit: 'Novedades desde tu última visita',
+    currentVersion: 'Versión actual: {version}',
+    empty: 'No hay notas de versión que mostrar.',
+    gotIt: 'Entendido',
+    saving: 'Guardando…',
+  },
 };

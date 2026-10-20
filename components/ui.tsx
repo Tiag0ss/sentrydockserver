@@ -2,6 +2,7 @@
 
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
 import { forwardRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { useTheme } from '@/lib/theme/ThemeProvider';
 import {
@@ -178,9 +179,11 @@ export function Modal({
     };
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || typeof document === 'undefined') return null;
 
-  return (
+  // Portal to body: topbar backdrop-filter / shell overflow create a containing
+  // block that would otherwise clip position:fixed overlays to the header strip.
+  return createPortal(
     <div
       className="sd-modal-overlay"
       role="presentation"
@@ -203,7 +206,8 @@ export function Modal({
         <div className="sd-modal-body">{children}</div>
         {footer ? <div className="sd-modal-footer">{footer}</div> : null}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

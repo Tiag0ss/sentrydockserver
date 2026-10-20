@@ -27,6 +27,7 @@ COPY --from=builder --chown=app:app /app/.next ./.next
 COPY --from=builder --chown=app:app /app/public ./public
 COPY --from=builder --chown=app:app /app/protocol ./protocol
 COPY --from=builder --chown=app:app /app/server/database/structure ./server/database/structure
+COPY --from=builder --chown=app:app /app/docs/whats-new ./docs/whats-new
 COPY --from=builder --chown=app:app /app/next.config.ts ./
 USER app
 EXPOSE 3000 50051

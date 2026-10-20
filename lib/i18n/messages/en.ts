@@ -861,6 +861,14 @@ export const en = {
     modify: 'Modify',
     monitor: 'Monitor',
   },
+  whatsNew: {
+    title: "What's New",
+    sinceLastVisit: "What's new since your last visit",
+    currentVersion: 'Current version: {version}',
+    empty: 'No release notes to show.',
+    gotIt: 'Got it',
+    saving: 'Saving…',
+  },
 };
 
 export type EnMessages = typeof en;

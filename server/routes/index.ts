@@ -43,6 +43,8 @@ import * as flowsService from '../services/flowsService';
 import * as ops from '../services/opsService';
 import * as imagesService from '../services/imagesService';
 import * as composeService from '../services/composeService';
+import * as whatsNewService from '../services/whatsNewService';
+import { normalizeVersion } from '../services/changelogFilter';
 
 export const apiRouter = Router();
 
@@ -384,6 +386,17 @@ apiRouter.post('/notifications/:id/read', authRequired, requirePasswordOk, (req,
     return;
   }
   res.json({ ok: true });
+});
+
+apiRouter.get('/whats-new', authRequired, requirePasswordOk, (req, res) => {
+  const fullRaw = String(req.query.full ?? '').toLowerCase();
+  const full = fullRaw === '1' || fullRaw === 'true';
+  const since = normalizeVersion(typeof req.query.since === 'string' ? req.query.since : null);
+  res.json(whatsNewService.getWhatsNewForUser(req.user!.id, { full, since }));
+});
+
+apiRouter.patch('/whats-new/seen', authRequired, requirePasswordOk, (req, res) => {
+  res.json(whatsNewService.markWhatsNewSeen(req.user!.id));
 });
 
 apiRouter.get('/dashboard', authRequired, requirePasswordOk, (_req, res) => {

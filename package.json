@@ -1,6 +1,6 @@
 {
   "name": "SentryDockServer",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "scripts": {
     "dev": "tsx watch server/index.ts",
@@ -10,6 +10,7 @@
     "typecheck": "tsc -p server/tsconfig.json --noEmit && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "whats-new:generate": "node scripts/generate-whats-new-changelog.mjs",
     "reset-db-keep-agents": "tsx server/scripts/reset-db-keep-agents.ts"
   },
   "dependencies": {
