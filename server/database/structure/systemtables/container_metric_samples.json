@@ -1,0 +1,81 @@
+{
+  "TableName": "container_metric_samples",
+  "PrimaryKeyFields": "id",
+  "Fields": [
+    {
+      "FieldName": "id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "agent_id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "container_id",
+      "DataType": "text",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "container_name",
+      "DataType": "varchar(255)",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "image",
+      "DataType": "varchar(512)",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "state",
+      "DataType": "varchar(64)",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "status",
+      "DataType": "varchar(255)",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "ts",
+      "DataType": "integer",
+      "NotNullable": true
+    },
+    {
+      "FieldName": "cpu_percent",
+      "DataType": "real",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "memory_usage_bytes",
+      "DataType": "integer",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "memory_limit_bytes",
+      "DataType": "integer",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "size_rw_bytes",
+      "DataType": "integer",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "size_rootfs_bytes",
+      "DataType": "integer",
+      "NotNullable": false
+    }
+  ],
+  "Indexes": [
+    {
+      "Name": "idx_cms_agent_container_ts",
+      "Columns": ["agent_id", "container_id", "ts"]
+    },
+    {
+      "Name": "idx_cms_agent_ts",
+      "Columns": ["agent_id", "ts"]
+    }
+  ]
+}

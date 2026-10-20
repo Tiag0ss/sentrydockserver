@@ -5,6 +5,11 @@ import { audit } from './audit';
 import { agentGateway } from './agentGateway';
 import { AppError } from '../utils/errors';
 import logger from '../utils/logger';
+import {
+  deleteAgentMetrics,
+  getAgentMetrics,
+  parseMetricsConfig,
+} from './metricsService';
 
 export function listAgents() {
   return agentsRepo.list().map((r) => {
@@ -17,6 +22,7 @@ export function listAgents() {
     const envObj = (meta?.env && typeof meta.env === 'object' && !Array.isArray(meta.env))
       ? (meta.env as Record<string, string>)
       : {};
+    const metrics = parseMetricsConfig(meta);
     return {
       ...r,
       online: agentGateway.isOnline(r.id),
@@ -31,6 +37,8 @@ export function listAgents() {
         : null,
       labels: Array.isArray(meta?.labels) ? (meta!.labels as string[]) : [],
       envKeys: Object.keys(envObj).sort(),
+      metricsIntervalSec: metrics.metricsIntervalSec,
+      metricsRetentionHours: metrics.metricsRetentionHours,
     };
   });
 }
@@ -52,16 +60,69 @@ export async function createAgent(input: { name: string; transport?: string }, a
 }
 
 export async function deleteAgent(id: string, actor: string) {
+  deleteAgentMetrics(id);
   agentsRepo.delete(id);
   await audit({ actor, action: 'agent.deleted', entity: 'agent', entityId: id });
 }
 
-export async function listAgentContainers(agentId: string) {
+export function getAgentContainerMetrics(agentId: string, opts?: { from?: number; to?: number }) {
+  const row = agentsRepo.findById(agentId);
+  if (!row) throw new AppError(404, 'agent not found', 'not_found');
+  return {
+    agentId,
+    agentName: row.name,
+    online: agentGateway.isOnline(agentId),
+    ...getAgentMetrics(agentId, opts),
+  };
+}
+
+export async function listAgentContainers(agentId: string, opts?: { withStats?: boolean }) {
   try {
-    return await agentGateway.sendCommand(agentId, 'docker.list', { all: true });
+    return await agentGateway.sendCommand(
+      agentId,
+      'docker.list',
+      { all: true, withStats: Boolean(opts?.withStats) },
+      opts?.withStats ? 120_000 : 60_000,
+    );
   } catch (err) {
     logger.warn('agent containers failed', { agentId, err: err instanceof Error ? err.message : String(err) });
     throw new AppError(502, 'agent command failed', 'agent_unavailable');
+  }
+}
+
+export async function controlAgentContainer(
+  agentId: string,
+  containerId: string,
+  action: 'start' | 'stop' | 'restart',
+  actor: string,
+) {
+  if (!containerId.trim()) throw new AppError(400, 'container id required', 'validation');
+  const type = action === 'start' ? 'docker.start'
+    : action === 'stop' ? 'docker.stop'
+      : 'docker.restart';
+  try {
+    const data = await agentGateway.sendCommand(
+      agentId,
+      type,
+      { id: containerId, timeoutSec: 15 },
+      60_000,
+    );
+    await audit({
+      actor,
+      action: `agent.container_${action}`,
+      entity: 'agent',
+      entityId: agentId,
+      payload: { containerId, action },
+    });
+    return data;
+  } catch (err) {
+    logger.warn('agent container control failed', {
+      agentId,
+      containerId,
+      action,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    throw new AppError(502, err instanceof Error ? err.message : 'agent command failed', 'agent_unavailable');
   }
 }
 
@@ -85,13 +146,15 @@ export async function listAgentImageTags(agentId: string, imageRepo: string, sec
   }
 }
 
-export function updateAgentMeta(
+export async function updateAgentMeta(
   id: string,
   patch: {
     labels?: string[];
     env?: Record<string, string>;
     envUpsert?: Record<string, string>;
     envDelete?: string[];
+    metricsIntervalSec?: number;
+    metricsRetentionHours?: number;
   },
 ) {
   const row = agentsRepo.findById(id);
@@ -142,11 +205,40 @@ export function updateAgentMeta(
     meta.env = env;
   }
 
+  let metricsChanged = false;
+  if (patch.metricsIntervalSec !== undefined) {
+    meta.metricsIntervalSec = patch.metricsIntervalSec;
+    metricsChanged = true;
+  }
+  if (patch.metricsRetentionHours !== undefined) {
+    meta.metricsRetentionHours = patch.metricsRetentionHours;
+    metricsChanged = true;
+  }
+
+  // Normalize stored metrics to clamped defaults
+  const metrics = parseMetricsConfig(meta);
+  meta.metricsIntervalSec = metrics.metricsIntervalSec;
+  meta.metricsRetentionHours = metrics.metricsRetentionHours;
+
   agentsRepo.update(id, { metaJson: JSON.stringify(meta) });
+
+  if (metricsChanged && agentGateway.isOnline(id)) {
+    try {
+      await agentGateway.pushAgentConfig(id);
+    } catch (err) {
+      logger.warn('push agent.config after patch failed', {
+        agentId: id,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   return {
     id,
     labels: Array.isArray(meta.labels) ? meta.labels : [],
     envKeys: Object.keys(env).sort(),
+    metricsIntervalSec: metrics.metricsIntervalSec,
+    metricsRetentionHours: metrics.metricsRetentionHours,
   };
 }
 

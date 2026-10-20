@@ -8,6 +8,10 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 import { tt } from '@/lib/i18n/translate';
 import { Panel, Button } from '@/components/ui';
 import { IconButton, IconOpen, IconRefresh } from '@/components/IconActions';
+import {
+  AgentContainersPanel,
+  type ContainerMetricsView,
+} from '@/components/AgentContainersPanel';
 
 export type DashboardData = {
   activeRuns: Array<{
@@ -17,6 +21,7 @@ export type DashboardData = {
     status: string;
     currentNodeId: string | null;
     currentNodeType?: string | null;
+    currentNodeLabel?: string | null;
     startedAt: string;
     triggerSource?: string;
     context?: { containerName?: string; image?: string } | null;
@@ -31,6 +36,7 @@ export type DashboardData = {
     startedAt?: string;
     triggerSource?: string;
     currentNodeType?: string | null;
+    currentNodeLabel?: string | null;
     context?: { containerName?: string; image?: string } | null;
   }>;
   agents: Array<{
@@ -46,6 +52,9 @@ export type DashboardData = {
       containers?: number | null;
     } | null;
     meta: Record<string, unknown> | null;
+    metricsIntervalSec?: number;
+    metricsRetentionHours?: number;
+    containerMetrics?: ContainerMetricsView[];
   }>;
   inventoryAlerts?: Array<{ agentId: string; agentName: string; kind: string; message: string }>;
   pendingUpdates: Array<{ id: string; image: string; status: string }>;
@@ -55,6 +64,7 @@ export type DashboardData = {
     status: string;
     currentNodeId?: string | null;
     currentNodeType?: string | null;
+    currentNodeLabel?: string | null;
     context?: {
       containerName?: string;
       image?: string;
@@ -75,10 +85,13 @@ function humanStepLabel(
   t: (key: string) => string,
   currentNodeType?: string | null,
   currentNodeId?: string | null,
+  currentNodeLabel?: string | null,
 ): string | null {
+  const custom = String(currentNodeLabel || '').trim();
   const type = currentNodeType
     || (currentNodeId ? currentNodeId.match(/^([a-z][a-z0-9_]*)-/i)?.[1] : null);
-  if (!type) return null;
+  if (custom && custom !== type) return custom;
+  if (!type) return custom || null;
   const key = `nodes.${type}`;
   const translated = t(key);
   if (translated !== key) return translated;
@@ -279,7 +292,7 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
                 </Panel>
               ))}
               {data.attention.map((a) => {
-                const step = humanStepLabel(t, a.currentNodeType, a.currentNodeId);
+                const step = humanStepLabel(t, a.currentNodeType, a.currentNodeId, a.currentNodeLabel);
                 const targetsCount = Array.isArray(a.context?.targets)
                   ? a.context!.targets!.length
                   : (typeof a.context?.targetsCount === 'number' ? a.context.targetsCount : null);
@@ -405,40 +418,74 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
             const inv = a.inventory;
             const pct = diskPct(inv);
             return (
-              <Panel key={a.id} className="sd-entity-card sd-dash-agent">
-                <div className="sd-entity-top">
-                  <strong className="sd-entity-name">{a.name}</strong>
-                  <span
-                    className="sd-entity-status"
-                    style={{ color: a.online ? 'var(--sd-ok)' : 'var(--sd-muted)' }}
-                  >
-                    {a.online ? t('agents.online') : t('agents.offline')}
-                  </span>
-                </div>
-                <div className="sd-entity-meta sd-entity-meta-wrap">
-                  {[
-                    inv?.containers != null ? `${inv.containers} ${t('dashboard.containersCount')}` : null,
-                    inv?.danglingImages != null ? `${inv.danglingImages} ${t('dashboard.danglingImages')}` : null,
-                    a.labels?.length ? a.labels.join(', ') : null,
-                  ].filter(Boolean).join(' · ') || t('dashboard.noInventoryData')}
-                </div>
-                {pct != null ? (
-                  <div className="sd-meter" title={`${t('dashboard.diskUsage')} ${pct}%`}>
-                    <div className="sd-meter-label">
-                      <span>{t('dashboard.diskUsage')}</span>
-                      <span>{pct}%</span>
-                    </div>
-                    <div className="sd-meter-track">
-                      <div
-                        className={`sd-meter-fill${pct >= 85 ? ' sd-meter-fill-warn' : ''}`}
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
+              <Link
+                key={a.id}
+                href={`/agents/${a.id}`}
+                className="sd-dash-agent-link"
+                aria-label={a.name}
+              >
+                <Panel className="sd-entity-card sd-dash-agent">
+                  <div className="sd-entity-top">
+                    <strong className="sd-entity-name">{a.name}</strong>
+                    <span
+                      className="sd-entity-status"
+                      style={{ color: a.online ? 'var(--sd-ok)' : 'var(--sd-muted)' }}
+                    >
+                      {a.online ? t('agents.online') : t('agents.offline')}
+                    </span>
                   </div>
-                ) : null}
-              </Panel>
+                  <div className="sd-entity-meta sd-entity-meta-wrap">
+                    {[
+                      inv?.containers != null ? `${inv.containers} ${t('dashboard.containersCount')}` : null,
+                      inv?.danglingImages != null ? `${inv.danglingImages} ${t('dashboard.danglingImages')}` : null,
+                      a.labels?.length ? a.labels.join(', ') : null,
+                    ].filter(Boolean).join(' · ') || t('dashboard.noInventoryData')}
+                  </div>
+                  {pct != null ? (
+                    <div className="sd-meter" title={`${t('dashboard.diskUsage')} ${pct}%`}>
+                      <div className="sd-meter-label">
+                        <span>{t('dashboard.diskUsage')}</span>
+                        <span>{pct}%</span>
+                      </div>
+                      <div className="sd-meter-track">
+                        <div
+                          className={`sd-meter-fill${pct >= 85 ? ' sd-meter-fill-warn' : ''}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+                </Panel>
+              </Link>
             );
           })}
+        </div>
+      )}
+
+      <div className="sd-section-head" style={{ marginTop: 4 }}>
+        <div>
+          <h2>{t('dashboard.containersByAgent')}</h2>
+          <p>{t('dashboard.containersByAgentHint')}</p>
+        </div>
+      </div>
+      {data.agents.length === 0 ? (
+        <Panel className="sd-entity-card">
+          <div className="sd-entity-meta" style={{ marginTop: 0 }}>{t('dashboard.noAgents')}</div>
+        </Panel>
+      ) : (
+        <div className="sd-dash-agent-metrics">
+          {data.agents.map((a) => (
+            <div key={`metrics-${a.id}`}>
+              <AgentContainersPanel
+                agentId={a.id}
+                agentName={a.name}
+                online={a.online}
+                initialContainers={a.containerMetrics}
+                pollMs={Math.max(10_000, (a.metricsIntervalSec || 30) * 1000)}
+                compact
+              />
+            </div>
+          ))}
         </div>
       )}
 

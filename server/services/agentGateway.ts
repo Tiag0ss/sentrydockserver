@@ -9,7 +9,9 @@ import { settingsRepo } from '../repositories/domainRepo';
 import { hashToken } from './crypto';
 import { audit } from './audit';
 import logger from '../utils/logger';
-import { MIN_PROTOCOL_VERSION, type Envelope } from '../../protocol/types';
+import { MIN_PROTOCOL_VERSION, type Envelope, type MetricsBatchPayload } from '../../protocol/types';
+import { getAgentMetrics, getAgentMetricsConfig, ingestBatch } from './metricsService';
+import { uiBus } from './uiBus';
 
 type Pending = {
   resolve: (v: unknown) => void;
@@ -152,6 +154,14 @@ class AgentGateway extends EventEmitter {
         payload: p,
       });
       this.emit('agentOnline', agentId);
+      if (status === 'online') {
+        void this.pushAgentConfig(agentId).catch((err) => {
+          logger.warn('push agent.config on hello failed', {
+            agentId,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
       return;
     }
 
@@ -195,7 +205,34 @@ class AgentGateway extends EventEmitter {
       const inv = (env.payload || {}) as Record<string, unknown>;
       Object.assign(meta, inv);
       agentsRepo.update(agentId, { metaJson: JSON.stringify(meta), lastSeenAt: new Date() });
+      return;
     }
+
+    if (env.type === 'metrics.batch') {
+      try {
+        const batch = (env.payload || {}) as MetricsBatchPayload;
+        ingestBatch(agentId, batch);
+        agentsRepo.update(agentId, { lastSeenAt: new Date() });
+        const metrics = getAgentMetrics(agentId);
+        uiBus.emit('metrics', {
+          agentId,
+          agentName: row.name,
+          online: true,
+          ...metrics,
+        });
+      } catch (err) {
+        logger.warn('metrics.batch ingest failed', {
+          agentId,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+
+  /** Push metrics interval/retention config to a connected agent. */
+  async pushAgentConfig(agentId: string): Promise<unknown> {
+    const cfg = getAgentMetricsConfig(agentId);
+    return this.sendCommand(agentId, 'agent.config', cfg, 15_000);
   }
 
   private releaseSlot() {

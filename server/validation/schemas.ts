@@ -137,6 +137,8 @@ export const updateAgentSchema = z.object({
   env: z.record(z.string()).optional(),
   envUpsert: z.record(z.string()).optional(),
   envDelete: z.array(z.string()).optional(),
+  metricsIntervalSec: z.number().int().min(10).max(300).optional(),
+  metricsRetentionHours: z.number().int().min(1).max(168).optional(),
 });
 
 export const continueRunSchema = z.object({

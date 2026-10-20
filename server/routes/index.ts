@@ -102,17 +102,44 @@ apiRouter.delete('/agents/:id', authRequired, requirePasswordOk, requireModify, 
   res.json({ ok: true });
 }));
 
-apiRouter.patch('/agents/:id', authRequired, requirePasswordOk, requireModify, validateBody(updateAgentSchema), (req, res) => {
-  res.json(agentsService.updateAgentMeta(param(req), {
+apiRouter.patch('/agents/:id', authRequired, requirePasswordOk, requireModify, validateBody(updateAgentSchema), asyncHandler(async (req, res) => {
+  res.json(await agentsService.updateAgentMeta(param(req), {
     labels: req.body.labels,
     env: req.body.env,
     envUpsert: req.body.envUpsert,
     envDelete: req.body.envDelete,
+    metricsIntervalSec: req.body.metricsIntervalSec,
+    metricsRetentionHours: req.body.metricsRetentionHours,
+  }));
+}));
+
+apiRouter.get('/agents/:id/metrics', authRequired, requirePasswordOk, (req, res) => {
+  const from = req.query.from != null ? Number(req.query.from) : undefined;
+  const to = req.query.to != null ? Number(req.query.to) : undefined;
+  res.json(agentsService.getAgentContainerMetrics(param(req), {
+    from: Number.isFinite(from) ? from : undefined,
+    to: Number.isFinite(to) ? to : undefined,
   }));
 });
 
 apiRouter.get('/agents/:id/containers', authRequired, requirePasswordOk, asyncHandler(async (req, res) => {
-  const data = await agentsService.listAgentContainers(param(req));
+  const withStats = String(req.query.stats || '') === '1' || String(req.query.withStats || '') === '1';
+  const data = await agentsService.listAgentContainers(param(req), { withStats });
+  res.json(data);
+}));
+
+apiRouter.post('/agents/:id/containers/:cid/start', authRequired, requirePasswordOk, requireModify, asyncHandler(async (req, res) => {
+  const data = await agentsService.controlAgentContainer(param(req), String(req.params.cid), 'start', req.user!.username);
+  res.json(data);
+}));
+
+apiRouter.post('/agents/:id/containers/:cid/stop', authRequired, requirePasswordOk, requireModify, asyncHandler(async (req, res) => {
+  const data = await agentsService.controlAgentContainer(param(req), String(req.params.cid), 'stop', req.user!.username);
+  res.json(data);
+}));
+
+apiRouter.post('/agents/:id/containers/:cid/restart', authRequired, requirePasswordOk, requireModify, asyncHandler(async (req, res) => {
+  const data = await agentsService.controlAgentContainer(param(req), String(req.params.cid), 'restart', req.user!.username);
   res.json(data);
 }));
 

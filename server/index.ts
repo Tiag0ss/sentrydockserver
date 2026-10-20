@@ -62,12 +62,18 @@ async function main() {
     io.of('/ui').emit('runs:changed', { ts: Date.now() });
   });
 
+  uiBus.on('metrics', (payload) => {
+    io.of('/ui').emit('metrics:updated', payload);
+  });
+
   setInterval(() => {
     io.of('/ui').emit('dashboard:ping', { ts: Date.now() });
   }, 5000);
 
   agentGateway.startGrpcServer(grpcPort);
   scheduleUpdateEngine();
+  const { startMetricsPruneLoop } = await import('./services/metricsService');
+  startMetricsPruneLoop();
   await resumeInterruptedRuns();
 
   server.listen(port, () => {

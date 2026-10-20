@@ -1,13 +1,16 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { tt } from '@/lib/i18n/translate';
 import {
   PageHeader, Button, Input, Select, Field, Alert, EmptyState, Panel, Modal, Tabs,
 } from '@/components/ui';
-import { IconButton, IconTrash, IconEdit } from '@/components/IconActions';
+import {
+  IconButton, IconTrash, IconEdit, IconOpen,
+} from '@/components/IconActions';
 
 type Agent = {
   id: string;
@@ -20,6 +23,8 @@ type Agent = {
   token?: string;
   labels?: string[];
   envKeys?: string[];
+  metricsIntervalSec?: number;
+  metricsRetentionHours?: number;
   meta?: {
     containers?: number;
     danglingImages?: number;
@@ -28,7 +33,7 @@ type Agent = {
   } | null;
 };
 
-type EditTab = 'labels' | 'env';
+type EditTab = 'labels' | 'env' | 'metrics';
 type EnvFormMode = 'create' | 'edit' | null;
 
 function parseLabels(raw: string): string[] {
@@ -40,6 +45,7 @@ function parseLabels(raw: string): string[] {
 
 export default function AgentsPage() {
   const { t } = useI18n();
+  const router = useRouter();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
@@ -58,6 +64,8 @@ export default function AgentsPage() {
   const [envDelete, setEnvDelete] = useState<string[]>([]);
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState('');
+  const [metricsIntervalSec, setMetricsIntervalSec] = useState('30');
+  const [metricsRetentionHours, setMetricsRetentionHours] = useState('24');
 
   const [envMode, setEnvMode] = useState<EnvFormMode>(null);
   const [envName, setEnvName] = useState('');
@@ -108,6 +116,8 @@ export default function AgentsPage() {
     setEnvName('');
     setEnvValue('');
     setEnvFormError('');
+    setMetricsIntervalSec(String(a.metricsIntervalSec ?? 30));
+    setMetricsRetentionHours(String(a.metricsRetentionHours ?? 24));
   }
 
   function closeEdit() {
@@ -115,22 +125,26 @@ export default function AgentsPage() {
     setEnvMode(null);
   }
 
+  function openDetail(a: Agent) {
+    router.push(`/agents/${a.id}`);
+  }
+
   async function saveAll() {
     if (!editAgent) return;
     setEditSaving(true);
     setEditError('');
     try {
-      const labels = parseLabels(editLabels);
-      const body: {
-        labels: string[];
-        envUpsert?: Record<string, string>;
-        envDelete?: string[];
-      } = { labels };
-      if (Object.keys(envUpsert).length) body.envUpsert = envUpsert;
-      if (envDelete.length) body.envDelete = envDelete;
+      const interval = Number(metricsIntervalSec);
+      const retention = Number(metricsRetentionHours);
       await api(`/agents/${editAgent.id}`, {
         method: 'PATCH',
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          labels: parseLabels(editLabels),
+          envUpsert: Object.keys(envUpsert).length ? envUpsert : undefined,
+          envDelete: envDelete.length ? envDelete : undefined,
+          metricsIntervalSec: Number.isFinite(interval) ? interval : undefined,
+          metricsRetentionHours: Number.isFinite(retention) ? retention : undefined,
+        }),
       });
       closeEdit();
       await load();
@@ -162,25 +176,22 @@ export default function AgentsPage() {
       return;
     }
     if (envMode === 'create') {
+      if (draftEnvKeys.includes(key) || initialEnvKeys.includes(key)) {
+        setEnvFormError(t('agents.envExists'));
+        return;
+      }
       if (!envValue.trim()) {
         setEnvFormError(t('agents.envValueRequired'));
         return;
       }
-      if (draftEnvKeys.includes(key) && !envDelete.includes(key)) {
-        setEnvFormError(t('agents.envExists'));
-        return;
-      }
-      setDraftEnvKeys((keys) => [...keys.filter((k) => k !== key), key].sort());
+      setDraftEnvKeys((keys) => [...keys, key].sort());
       setEnvUpsert((m) => ({ ...m, [key]: envValue }));
       setEnvDelete((d) => d.filter((k) => k !== key));
-      setEnvMode(null);
-      return;
+    } else if (envMode === 'edit') {
+      if (envValue.trim()) {
+        setEnvUpsert((m) => ({ ...m, [key]: envValue }));
+      }
     }
-    // edit
-    if (envValue.trim()) {
-      setEnvUpsert((m) => ({ ...m, [key]: envValue }));
-    }
-    // blank = keep existing server value (or previous draft upsert)
     setEnvMode(null);
   }
 
@@ -227,12 +238,25 @@ export default function AgentsPage() {
               (a.envKeys?.length)
                 ? `${a.envKeys.length} ${t('agents.envCount')}`
                 : null,
+              `${t('agents.metricsInterval')}: ${a.metricsIntervalSec ?? 30}s`,
             ].filter(Boolean);
             const labels = a.labels || [];
             return (
               <Panel key={a.id} className="sd-entity-card">
                 <div className="sd-entity-item">
-                  <div className="sd-entity-main">
+                  <div
+                    className="sd-entity-main"
+                    role="button"
+                    tabIndex={0}
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => openDetail(a)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        openDetail(a);
+                      }
+                    }}
+                  >
                     <div className="sd-entity-top">
                       <strong className="sd-entity-name">{a.name}</strong>
                       <span
@@ -254,6 +278,9 @@ export default function AgentsPage() {
                     </div>
                   </div>
                   <div className="sd-entity-actions">
+                    <IconButton label={t('agents.viewContainers')} onClick={() => openDetail(a)}>
+                      <IconOpen />
+                    </IconButton>
                     <IconButton label={t('common.edit')} onClick={() => openEdit(a)}>
                       <IconEdit />
                     </IconButton>
@@ -334,6 +361,7 @@ export default function AgentsPage() {
           items={[
             { id: 'labels', label: t('agents.labels') },
             { id: 'env', label: t('agents.env'), count: draftEnvKeys.length || undefined },
+            { id: 'metrics', label: t('agents.metricsTab') },
           ]}
         />
 
@@ -348,7 +376,41 @@ export default function AgentsPage() {
               />
             </Field>
           </div>
-        ) : (
+        ) : null}
+
+        {editTab === 'metrics' ? (
+          <div className="sd-stack" style={{ marginTop: 16 }}>
+            <div className="sd-entity-muted" style={{ fontSize: 12 }}>
+              {t('agents.metricsHint')}
+            </div>
+            <Field label={t('agents.metricsInterval')}>
+              <Input
+                type="number"
+                min={10}
+                max={300}
+                value={metricsIntervalSec}
+                onChange={(e) => setMetricsIntervalSec(e.target.value)}
+              />
+            </Field>
+            <div className="sd-entity-muted" style={{ fontSize: 12, marginTop: -8 }}>
+              {t('agents.metricsIntervalHint')}
+            </div>
+            <Field label={t('agents.metricsRetention')}>
+              <Input
+                type="number"
+                min={1}
+                max={168}
+                value={metricsRetentionHours}
+                onChange={(e) => setMetricsRetentionHours(e.target.value)}
+              />
+            </Field>
+            <div className="sd-entity-muted" style={{ fontSize: 12, marginTop: -8 }}>
+              {t('agents.metricsRetentionHint')}
+            </div>
+          </div>
+        ) : null}
+
+        {editTab === 'env' ? (
           <div style={{ marginTop: 16 }}>
             <div className="sd-secrets-section-head">
               <div className="sd-entity-muted" style={{ fontSize: 12 }}>
@@ -423,7 +485,7 @@ export default function AgentsPage() {
               </div>
             )}
           </div>
-        )}
+        ) : null}
       </Modal>
     </div>
   );

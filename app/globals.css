@@ -390,10 +390,105 @@ button, input, select, textarea { font: inherit; }
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 8px;
 }
+
+.sd-agent-containers-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.sd-agent-containers-title {
+  font-size: 16px;
+}
+.sd-agent-containers-panel-compact .sd-agent-containers-title {
+  font-size: 14px;
+}
+.sd-agent-containers-online {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.sd-container-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+.sd-container-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.sd-container-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sd-container-card-names {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.sd-container-card-names .sd-secret-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sd-container-card-image {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sd-container-card-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 12px;
+}
+.sd-container-card-charts {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.sd-dash-agent-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sd-dash-agent-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  border-radius: inherit;
+  cursor: pointer;
+}
+.sd-dash-agent-link:hover .sd-dash-agent,
+.sd-dash-agent-link:focus-visible .sd-dash-agent {
+  border-color: color-mix(in srgb, var(--sd-accent) 45%, var(--sd-border));
+}
+.sd-dash-agent-link:focus-visible {
+  outline: 2px solid var(--sd-accent);
+  outline-offset: 2px;
+}
 .sd-dash-agent {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  height: 100%;
+}
+.sd-agent-containers-title.sd-entity-link {
+  font-size: inherit;
+  font-weight: 700;
+  color: var(--sd-text);
+}
+.sd-agent-containers-title.sd-entity-link:hover {
+  color: var(--sd-accent);
 }
 .sd-meter {
   margin-top: 4px;

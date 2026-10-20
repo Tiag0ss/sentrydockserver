@@ -21,6 +21,7 @@ import { AppError } from '../utils/errors';
 import logger from '../utils/logger';
 import { unreadNotificationCount } from './notificationsService';
 import { updateAgentMeta } from './agentsService';
+import { getAgentMetrics, parseMetricsConfig } from './metricsService';
 
 function flowNameMap(): Map<string, string> {
   const map = new Map<string, string>();
@@ -41,12 +42,18 @@ function enrichRun<T extends {
   const currentNodeType = node
     ? String(node.type || node.data?.nodeType || '')
     : (r.currentNodeId ? inferNodeTypeFromId(r.currentNodeId) : null);
+  const currentNodeLabel = (() => {
+    const custom = node?.data?.label != null ? String(node.data.label).trim() : '';
+    if (custom) return custom;
+    return currentNodeType || null;
+  })();
 
   return {
     ...r,
     flowName: names.get(r.flowId) || r.flowId.slice(0, 8),
     context: r.contextJson ? JSON.parse(r.contextJson) : null,
     currentNodeType: currentNodeType || null,
+    currentNodeLabel,
   };
 }
 
@@ -885,6 +892,10 @@ export function getDashboard() {
       } catch {
         meta = null;
       }
+      const metricsCfg = parseMetricsConfig(meta);
+      const metrics = getAgentMetrics(a.id, {
+        from: Date.now() - Math.min(6 * 3600_000, metricsCfg.metricsRetentionHours * 3600_000),
+      });
       return {
         id: a.id,
         name: a.name,
@@ -901,6 +912,9 @@ export function getDashboard() {
           danglingImages: typeof meta.danglingImages === 'number' ? meta.danglingImages : null,
           containers: typeof meta.containers === 'number' ? meta.containers : null,
         } : null,
+        metricsIntervalSec: metricsCfg.metricsIntervalSec,
+        metricsRetentionHours: metricsCfg.metricsRetentionHours,
+        containerMetrics: metrics.containers,
       };
     }),
     inventoryAlerts: agentRows.flatMap((a) => {

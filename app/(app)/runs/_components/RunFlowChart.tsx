@@ -13,7 +13,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { FlowCard } from '@/app/(app)/flows/_components/FlowCard';
-import { normalizeHandle, NODE_TYPES_LIST } from '@/app/(app)/flows/_components/flowConstants';
+import { normalizeHandle } from '@/app/(app)/flows/_components/flowConstants';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 
 const nodeTypes = { flowCard: FlowCard };
@@ -114,9 +114,13 @@ function RunFlowCanvas({ graph, nodeStatuses, currentNodeId, onNodeClick, height
         style: clickable ? { cursor: 'pointer' } : undefined,
         data: {
           ...raw.data,
-          label: translated === labelKey
-            ? (NODE_TYPES_LIST.find((n) => n.type === nodeType) ? nodeType : String(raw.data?.label || nodeType))
-            : translated,
+          // Prefer the name set in the flow editor; fall back to i18n type title.
+          label: (() => {
+            const custom = String(raw.data?.label || '').trim();
+            if (custom) return custom;
+            if (translated !== labelKey) return translated;
+            return nodeType;
+          })(),
           nodeType,
           runStatus: st?.status || (isCurrent ? 'running' : 'pending'),
           runError: st?.lastError || null,

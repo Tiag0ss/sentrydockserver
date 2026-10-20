@@ -3,7 +3,7 @@
  * `structure/systemtables/*.json` (source of truth for DDL via schemaBuilder).
  * When adding/changing columns: edit the JSON first, then update this file.
  */
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
 
 export const users = sqliteTable('users', {
   id: text('id').primaryKey(),
@@ -213,4 +213,20 @@ export const dockerImages = sqliteTable('docker_images', {
   provider: text('provider').notNull().default('docker_hub'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+});
+
+export const containerMetricSamples = sqliteTable('container_metric_samples', {
+  id: text('id').primaryKey(),
+  agentId: text('agent_id').notNull(),
+  containerId: text('container_id').notNull(),
+  containerName: text('container_name').notNull(),
+  image: text('image'),
+  state: text('state'),
+  status: text('status'),
+  ts: integer('ts').notNull(),
+  cpuPercent: real('cpu_percent'),
+  memoryUsageBytes: integer('memory_usage_bytes'),
+  memoryLimitBytes: integer('memory_limit_bytes'),
+  sizeRwBytes: integer('size_rw_bytes'),
+  sizeRootFsBytes: integer('size_rootfs_bytes'),
 });

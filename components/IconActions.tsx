@@ -58,6 +58,14 @@ export function IconPlay() {
   );
 }
 
+export function IconStop() {
+  return (
+    <Svg>
+      <rect x="6" y="6" width="12" height="12" rx="1" />
+    </Svg>
+  );
+}
+
 export function IconEdit() {
   return (
     <Svg>

@@ -486,9 +486,14 @@ export default function RunDetailPage() {
   const currentType = currentNode
     ? String(currentNode.type || currentNode.data?.nodeType || '')
     : '';
-  const currentLabel = currentType
-    ? (t(`nodes.${currentType}`) !== `nodes.${currentType}` ? t(`nodes.${currentType}`) : currentType)
-    : run.currentNodeId;
+  const currentLabel = (() => {
+    const custom = String(currentNode?.data?.label || '').trim();
+    if (custom) return custom;
+    if (!currentType) return run.currentNodeId;
+    const key = `nodes.${currentType}`;
+    const tr = t(key);
+    return tr !== key ? tr : currentType;
+  })();
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -772,6 +777,8 @@ export default function RunDetailPage() {
                   {t('runs.step')}:{' '}
                   {(() => {
                     const n = childModalRun.flow?.graph?.nodes?.find((x) => x.id === childModalRun.currentNodeId);
+                    const custom = String(n?.data?.label || '').trim();
+                    if (custom) return custom;
                     const typ = n ? String(n.type || n.data?.nodeType || '') : '';
                     if (!typ) return childModalRun.currentNodeId;
                     const key = `nodes.${typ}`;
@@ -810,11 +817,15 @@ export default function RunDetailPage() {
           <p style={{ color: 'var(--muted)', margin: 0, fontSize: 14 }}>{t('runs.noSteps')}</p>
         )}
         {run.steps?.map((s, index) => {
+          const custom = String(s.label || '').trim();
           const typeKey = `nodes.${s.nodeType || ''}`;
           const translated = s.nodeType ? t(typeKey) : '';
-          const title = translated && translated !== typeKey
-            ? translated
-            : (s.label || s.nodeType || s.nodeId);
+          // Prefer the name set in the flow editor; fall back to i18n type title.
+          const title = custom && custom !== (s.nodeType || '')
+            ? custom
+            : (translated && translated !== typeKey
+              ? translated
+              : (custom || s.nodeType || s.nodeId));
           const statusText = statusLabel(t, s.status);
           return (
             <div

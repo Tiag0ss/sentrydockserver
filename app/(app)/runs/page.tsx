@@ -18,6 +18,7 @@ type Run = {
   status: string;
   currentNodeId: string | null;
   currentNodeType?: string | null;
+  currentNodeLabel?: string | null;
   startedAt: string;
   finishedAt?: string | null;
   triggerSource: string;
@@ -54,9 +55,11 @@ function contextHint(r: Run): string | null {
 }
 
 function humanStepLabel(t: (key: string) => string, r: Run): string | null {
+  const custom = String(r.currentNodeLabel || '').trim();
   const type = r.currentNodeType
     || (r.currentNodeId ? r.currentNodeId.match(/^([a-z][a-z0-9_]*)-/i)?.[1] : null);
-  if (!type) return null;
+  if (custom && custom !== type) return custom;
+  if (!type) return custom || null;
   const key = `nodes.${type}`;
   const translated = t(key);
   if (translated !== key) return translated;
