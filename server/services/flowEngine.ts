@@ -1613,8 +1613,12 @@ async function executeNode(
             }
           }
           setLastOutcome(ctx, healthy ? 'healthy' : 'timeout', healthy);
-          await upsertStep(runId, node.id, branchId, 'success', {
+          // Unhealthy must fail the split branch so join.lastResult is false for IF → notify.
+          // Still return 'success' so the lane can follow `out` (and CASE can use lastOutcome).
+          if (!healthy) ctx.__branchFailed = true;
+          await upsertStep(runId, node.id, branchId, healthy ? 'success' : 'failed', {
             finishedAt: new Date(),
+            lastError: healthy ? null : 'timeout / unhealthy',
             detailJson: detailJson({
               agentId,
               containerName: id,
@@ -1628,11 +1632,11 @@ async function executeNode(
           });
           await audit({
             actor: 'system',
-            action: 'flow_node.success',
+            action: healthy ? 'flow_node.success' : 'flow_node.failed',
             entity: 'flow_node',
             entityId: node.id,
             flowRunId: runId,
-            payload: { type: node.type, attempts },
+            payload: { type: node.type, attempts, healthy, branch: healthy ? 'healthy' : 'timeout' },
           });
           return 'success';
         }

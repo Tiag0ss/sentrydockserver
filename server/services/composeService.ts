@@ -398,8 +398,10 @@ function buildBasicComposeUpdateGraph(opts: {
   const splitId = `split-${ts}`;
   const joinId = `join-${ts}`;
   const notifyOkId = `notify-ok-${ts}`;
+  const notifyFailId = `notify-fail-${ts}`;
   const notifyNoId = `notify-noop-${ts}`;
   const notifyErrId = `notify-err-${ts}`;
+  const ifAfterJoinId = `if-join-${ts}`;
   const laneGapY = 160;
   const baseY = 40;
   const midY = baseY + Math.max(0, (opts.targets.length - 1) * laneGapY) / 2;
@@ -458,15 +460,38 @@ function buildBasicComposeUpdateGraph(opts: {
       },
     },
     {
-      id: notifyOkId,
-      type: 'notify',
+      id: ifAfterJoinId,
+      type: 'if',
       position: { x: 1720, y: midY },
       data: {
-        label: 'Notify',
+        label: 'OK after join?',
+        nodeType: 'if',
+        retries: 0,
+        field: 'lastResult',
+      },
+    },
+    {
+      id: notifyOkId,
+      type: 'notify',
+      position: { x: 1960, y: midY - 70 },
+      data: {
+        label: 'Notify success',
         nodeType: 'notify',
         retries: 0,
         templateKey: 'update_success',
         level: 'info',
+      },
+    },
+    {
+      id: notifyFailId,
+      type: 'notify',
+      position: { x: 1960, y: midY + 70 },
+      data: {
+        label: 'Notify failed',
+        nodeType: 'notify',
+        retries: 0,
+        templateKey: 'execution_failed',
+        level: 'error',
       },
     },
     {
@@ -500,7 +525,9 @@ function buildBasicComposeUpdateGraph(opts: {
     { id: `e-${ts}-nou`, source: checkId, target: notifyNoId, sourceHandle: 'no_update' },
     { id: `e-${ts}-err`, source: checkId, target: notifyErrId, sourceHandle: 'error' },
     { id: `e-${ts}-appr`, source: approvalId, target: splitId, sourceHandle: 'out' },
-    { id: `e-${ts}-join`, source: joinId, target: notifyOkId, sourceHandle: 'out' },
+    { id: `e-${ts}-join`, source: joinId, target: ifAfterJoinId, sourceHandle: 'out' },
+    { id: `e-${ts}-if-ok`, source: ifAfterJoinId, target: notifyOkId, sourceHandle: 'true' },
+    { id: `e-${ts}-if-fail`, source: ifAfterJoinId, target: notifyFailId, sourceHandle: 'false' },
   ];
 
   const targets = opts.targets.length
@@ -572,7 +599,7 @@ function buildBasicComposeUpdateGraph(opts: {
 }
 
 /**
- * Cria um flow básico: check → aprovação → split → pull → compose_up → healthy → join → notify
+ * Cria um flow básico: check → aprovação → split → pull → compose_up → healthy → join → if → notify
  * para os agentes onde o projecto já foi instalado, usando a primeira imagem SD_IMAGE_* do YAML.
  */
 export async function createUpdateFlowFromCompose(projectId: string, actor: string) {

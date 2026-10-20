@@ -280,17 +280,20 @@ function buildContainerUpdateGraph(opts: {
   const splitId = `n-${ts}-split`;
   const joinId = `n-${ts}-join`;
   const notifyOkId = `n-${ts}-ok`;
+  const notifyFailId = `n-${ts}-fail`;
   const notifyNoId = `n-${ts}-nou`;
   const notifyErrId = `n-${ts}-err`;
+  const ifAfterJoinId = `n-${ts}-if-join`;
 
   const laneGapY = 160;
   const baseY = 40;
+  const midY = baseY + Math.max(0, (opts.targets.length - 1) * laneGapY) / 2;
 
   const nodes: FlowNodeOut[] = [
     {
       id: checkId,
       type: 'check_image_update',
-      position: { x: 40, y: baseY + Math.max(0, (opts.targets.length - 1) * laneGapY) / 2 },
+      position: { x: 40, y: midY },
       data: {
         label: 'Check update',
         nodeType: 'check_image_update',
@@ -307,7 +310,7 @@ function buildContainerUpdateGraph(opts: {
     {
       id: approvalId,
       type: 'wait_approval',
-      position: { x: 280, y: baseY + Math.max(0, (opts.targets.length - 1) * laneGapY) / 2 },
+      position: { x: 280, y: midY },
       data: {
         label: 'Wait approval',
         nodeType: 'wait_approval',
@@ -318,7 +321,7 @@ function buildContainerUpdateGraph(opts: {
     {
       id: splitId,
       type: 'split',
-      position: { x: 520, y: baseY + Math.max(0, (opts.targets.length - 1) * laneGapY) / 2 },
+      position: { x: 520, y: midY },
       data: {
         label: 'Split',
         nodeType: 'split',
@@ -335,7 +338,7 @@ function buildContainerUpdateGraph(opts: {
     {
       id: joinId,
       type: 'join',
-      position: { x: 1480, y: baseY + Math.max(0, (opts.targets.length - 1) * laneGapY) / 2 },
+      position: { x: 1480, y: midY },
       data: {
         label: 'Join',
         nodeType: 'join',
@@ -344,15 +347,38 @@ function buildContainerUpdateGraph(opts: {
       },
     },
     {
+      id: ifAfterJoinId,
+      type: 'if',
+      position: { x: 1720, y: midY },
+      data: {
+        label: 'OK after join?',
+        nodeType: 'if',
+        retries: 0,
+        field: 'lastResult',
+      },
+    },
+    {
       id: notifyOkId,
       type: 'notify',
-      position: { x: 1720, y: baseY + Math.max(0, (opts.targets.length - 1) * laneGapY) / 2 },
+      position: { x: 1960, y: midY - 70 },
       data: {
-        label: 'Notify',
+        label: 'Notify success',
         nodeType: 'notify',
         retries: 0,
         templateKey: 'update_success',
         level: 'info',
+      },
+    },
+    {
+      id: notifyFailId,
+      type: 'notify',
+      position: { x: 1960, y: midY + 70 },
+      data: {
+        label: 'Notify failed',
+        nodeType: 'notify',
+        retries: 0,
+        templateKey: 'execution_failed',
+        level: 'error',
       },
     },
     {
@@ -386,7 +412,9 @@ function buildContainerUpdateGraph(opts: {
     { id: `e-${ts}-nou`, source: checkId, target: notifyNoId, sourceHandle: 'no_update' },
     { id: `e-${ts}-err`, source: checkId, target: notifyErrId, sourceHandle: 'error' },
     { id: `e-${ts}-appr`, source: approvalId, target: splitId, sourceHandle: 'out' },
-    { id: `e-${ts}-join`, source: joinId, target: notifyOkId, sourceHandle: 'out' },
+    { id: `e-${ts}-join`, source: joinId, target: ifAfterJoinId, sourceHandle: 'out' },
+    { id: `e-${ts}-if-ok`, source: ifAfterJoinId, target: notifyOkId, sourceHandle: 'true' },
+    { id: `e-${ts}-if-fail`, source: ifAfterJoinId, target: notifyFailId, sourceHandle: 'false' },
   ];
 
   if (!opts.targets.length) {
