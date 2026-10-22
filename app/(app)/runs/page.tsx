@@ -9,6 +9,7 @@ import { tt } from '@/lib/i18n/translate';
 import {
   PageHeader, Alert, EmptyState, Panel, Button, Input, Select, Field,
 } from '@/components/ui';
+import { CollapsibleFilterPanel } from '@/components/CollapsibleFilterPanel';
 import { IconButton, IconOpen, IconRefresh } from '@/components/IconActions';
 
 type Run = {
@@ -165,6 +166,8 @@ export default function RunsPage() {
   }, [loadActive, loadHistory]);
 
   const hasFilters = Boolean(q || flowId || runStatus || trigger || dryRun || !topLevelOnly);
+  const activeFilterCount = [q, flowId, runStatus, trigger, dryRun].filter(Boolean).length
+    + (topLevelOnly ? 0 : 1);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const to = Math.min(total, page * pageSize);
@@ -309,7 +312,17 @@ export default function RunsPage() {
         <h2>{t('runs.history')}</h2>
       </div>
 
-      <Panel className="sd-logs-filters">
+      <CollapsibleFilterPanel
+        className="sd-logs-filters"
+        activeCount={activeFilterCount}
+        onClear={clearFilters}
+        clearLabel={t('runs.clearFilters')}
+        headerExtra={(
+          <span className="sd-entity-muted" style={{ fontSize: 12 }}>
+            {loadingHistory ? t('common.loading') : showingLabel}
+          </span>
+        )}
+      >
         <div className="sd-form-row">
           <Field label={t('runs.search')}>
             <Input
@@ -358,31 +371,18 @@ export default function RunsPage() {
               <option value="all">{t('runs.includeChildren')}</option>
             </Select>
           </Field>
+          <Field label={t('runs.pageSize')}>
+            <Select
+              value={String(pageSize)}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+            >
+              {PAGE_SIZES.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </Select>
+          </Field>
         </div>
-        <div className="sd-logs-filter-meta">
-          <span className="sd-entity-muted">
-            {loadingHistory ? t('common.loading') : showingLabel}
-          </span>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--sd-muted)' }}>
-                {t('runs.pageSize')}
-                <Select
-                  value={String(pageSize)}
-                  onChange={(e) => setPageSize(Number(e.target.value))}
-                >
-                  {PAGE_SIZES.map((n) => (
-                    <option key={n} value={n}>{n}</option>
-                  ))}
-                </Select>
-              </label>
-              {hasFilters ? (
-                <Button variant="ghost" className="sd-btn-sm" onClick={clearFilters}>
-                  {t('runs.clearFilters')}
-                </Button>
-              ) : null}
-            </div>
-        </div>
-      </Panel>
+      </CollapsibleFilterPanel>
 
       {!loadingHistory && history.length === 0 ? (
         <EmptyState>{hasFilters ? t('runs.emptyFiltered') : t('runs.emptyHistory')}</EmptyState>

@@ -226,7 +226,16 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
   const [error, setError] = useState('');
 
   const needsAttention = data.attention.length > 0 || data.pendingUpdates.length > 0;
-  const upcoming = data.upcomingPolicies.slice(0, 8);
+  const UPCOMING_PAGE_SIZES = [5, 8, 12] as const;
+  const [upcomingPage, setUpcomingPage] = useState(1);
+  const [upcomingPageSize, setUpcomingPageSize] = useState<(typeof UPCOMING_PAGE_SIZES)[number]>(8);
+  const upcomingTotal = data.upcomingPolicies.length;
+  const upcomingTotalPages = Math.max(1, Math.ceil(upcomingTotal / upcomingPageSize));
+  const upcomingPageSafe = Math.min(upcomingPage, upcomingTotalPages);
+  const upcoming = data.upcomingPolicies.slice(
+    (upcomingPageSafe - 1) * upcomingPageSize,
+    upcomingPageSafe * upcomingPageSize,
+  );
 
   const recentFailures = useMemo(
     () => data.history
@@ -355,30 +364,75 @@ export function DashboardPanels({ data, onReload }: { data: DashboardData; onRel
             </div>
             <Link href="/flows" className="sd-entity-link">{t('dashboard.viewFlows')}</Link>
           </div>
-          {upcoming.length === 0 ? (
+          {upcomingTotal === 0 ? (
             <Panel className="sd-entity-card">
               <div className="sd-entity-meta" style={{ marginTop: 0 }}>{t('dashboard.noUpcoming')}</div>
             </Panel>
           ) : (
-            <div className="sd-entity-list">
-              {upcoming.map((p) => (
-                <Panel key={p.id} className="sd-entity-card">
-                  <div className="sd-entity-item">
-                    <div className="sd-entity-main">
-                      <div className="sd-entity-top">
-                        <strong className="sd-entity-name">{p.name}</strong>
-                        <span className="sd-entity-badge" style={{ color: 'var(--sd-accent)' }}>
-                          {formatRelative(p.nextRunAt, t)}
-                        </span>
-                      </div>
-                      <div className="sd-entity-meta">
-                        {p.cron} ({p.timezone}) · {formatDate(p.nextRunAt)}
+            <>
+              <div className="sd-entity-list">
+                {upcoming.map((p) => (
+                  <Panel key={p.id} className="sd-entity-card">
+                    <div className="sd-entity-item">
+                      <div className="sd-entity-main">
+                        <div className="sd-entity-top">
+                          <strong className="sd-entity-name">{p.name}</strong>
+                          <span className="sd-entity-badge" style={{ color: 'var(--sd-accent)' }}>
+                            {formatRelative(p.nextRunAt, t)}
+                          </span>
+                        </div>
+                        <div className="sd-entity-meta">
+                          {p.cron} ({p.timezone}) · {formatDate(p.nextRunAt)}
+                        </div>
                       </div>
                     </div>
+                  </Panel>
+                ))}
+              </div>
+              {upcomingTotal > UPCOMING_PAGE_SIZES[0] ? (
+                <div className="sd-logs-filter-meta" style={{ marginTop: 10 }}>
+                  <span className="sd-entity-muted">
+                    {t('dashboard.upcomingPage', {
+                      page: String(upcomingPageSafe),
+                      total: String(upcomingTotalPages),
+                    })}
+                  </span>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--sd-muted)' }}>
+                      {t('dashboard.upcomingPageSize')}
+                      <select
+                        className="sd-input sd-input-sm"
+                        value={upcomingPageSize}
+                        onChange={(e) => {
+                          setUpcomingPageSize(Number(e.target.value) as (typeof UPCOMING_PAGE_SIZES)[number]);
+                          setUpcomingPage(1);
+                        }}
+                      >
+                        {UPCOMING_PAGE_SIZES.map((n) => (
+                          <option key={n} value={n}>{n}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <Button
+                      variant="ghost"
+                      className="sd-btn-sm"
+                      disabled={upcomingPageSafe <= 1}
+                      onClick={() => setUpcomingPage((p) => Math.max(1, p - 1))}
+                    >
+                      {t('dashboard.upcomingPrev')}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="sd-btn-sm"
+                      disabled={upcomingPageSafe >= upcomingTotalPages}
+                      onClick={() => setUpcomingPage((p) => Math.min(upcomingTotalPages, p + 1))}
+                    >
+                      {t('dashboard.upcomingNext')}
+                    </Button>
                   </div>
-                </Panel>
-              ))}
-            </div>
+                </div>
+              ) : null}
+            </>
           )}
         </section>
       </div>

@@ -233,10 +233,13 @@ export async function startFlowRun(opts: {
   runsRepo.insert({
       id: runId,
       flowId: opts.flowId,
+      // Freeze name + graph so history still works after the flow is deleted or renamed.
+      flowName: flow.name || null,
       status: 'running',
       triggerSource: opts.triggerSource,
       lockKey,
       contextJson: JSON.stringify(opts.context || {}),
+      graphJson: flow.graphJson || null,
       dryRun: Boolean(opts.dryRun),
       startedAt: now,
       parentRunId: opts.parentRunId || null,
@@ -1891,7 +1894,8 @@ export async function advanceRun(runId: string, opts?: { resumeInterrupted?: boo
   if (!run) return;
   const flow = flowsRepo.findById(run.flowId);
   if (!flow) return;
-  const graph = parseGraph(flow.graphJson);
+  // Prefer the run snapshot so mid-flight edits to the live flow cannot diverge the run.
+  const graph = parseGraph(run.graphJson || flow.graphJson);
   const ctx = JSON.parse(run.contextJson || '{}') as RunContext;
   const dryRun = Boolean(run.dryRun);
   ctx.runId = runId;

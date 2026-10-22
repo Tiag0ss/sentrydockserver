@@ -7,6 +7,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 import {
   PageHeader, Button, Input, Field, Panel, EmptyState, Modal, Alert, Select,
 } from '@/components/ui';
+import { CollapsibleFilterPanel } from '@/components/CollapsibleFilterPanel';
 import { IconButton, IconTrash, IconEdit, IconSave, IconCopy } from '@/components/IconActions';
 
 type AgentRow = { id: string; name: string; online: boolean; labels?: string[] };
@@ -69,6 +70,18 @@ export default function ComposePage() {
   const [flowMsg, setFlowMsg] = useState('');
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [importOpen, setImportOpen] = useState(false);
+  const [importAgentId, setImportAgentId] = useState('');
+  const [importScanning, setImportScanning] = useState(false);
+  const [importBusy, setImportBusy] = useState<string | null>(null);
+  const [discovered, setDiscovered] = useState<Array<{
+    projectName: string;
+    services: string[];
+    yamlText: string | null;
+    yamlSource: string | null;
+    error?: string;
+    alreadyImported: boolean;
+  }>>([]);
 
   async function load() {
     const [p, a] = await Promise.all([
@@ -111,6 +124,55 @@ export default function ComposePage() {
     setYamlText(DEFAULT_YAML);
     setFormError('');
     setOpen(true);
+  }
+
+  function openImport() {
+    setImportOpen(true);
+    setDiscovered([]);
+    setImportAgentId(onlineAgents[0]?.id || '');
+    setError('');
+  }
+
+  async function scanImport() {
+    if (!importAgentId) return;
+    setImportScanning(true);
+    setError('');
+    try {
+      const res = await api<{ projects: typeof discovered }>(
+        `/compose-projects/discover?agentId=${encodeURIComponent(importAgentId)}`,
+      );
+      setDiscovered(res.projects || []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('common.error'));
+    } finally {
+      setImportScanning(false);
+    }
+  }
+
+  async function importOne(p: (typeof discovered)[number]) {
+    if (!p.yamlText) return;
+    setImportBusy(p.projectName);
+    setError('');
+    try {
+      const created = await api<{ name: string }>('/compose-projects/import-discovered', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: p.projectName,
+          yamlText: p.yamlText,
+          sourceProjectName: p.projectName,
+          agentId: importAgentId,
+        }),
+      });
+      setFlowMsg(t('compose.importDone', { name: created.name }));
+      await load();
+      setDiscovered((prev) => prev.map((x) => (
+        x.projectName === p.projectName ? { ...x, alreadyImported: true } : x
+      )));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('common.error'));
+    } finally {
+      setImportBusy(null);
+    }
   }
 
   function openEdit(p: ComposeProject) {
@@ -241,35 +303,51 @@ export default function ComposePage() {
       <PageHeader
         title={t('compose.title')}
         subtitle={t('compose.subtitle')}
-        actions={<Button onClick={openCreate}>{t('compose.create')}</Button>}
+        actions={(
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Button variant="ghost" onClick={openImport}>{t('compose.importFromAgent')}</Button>
+            <Button onClick={openCreate}>{t('compose.create')}</Button>
+          </div>
+        )}
       />
       {error ? <Alert>{error}</Alert> : null}
       {flowMsg ? <Alert>{flowMsg}</Alert> : null}
 
       {projects.length > 0 ? (
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t('compose.search')}
-            aria-label={t('compose.search')}
-            className="sd-input sd-input-sm"
-            style={{ maxWidth: 320 }}
-          />
-          <Select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            aria-label={t('compose.filterStatus')}
-            style={{ maxWidth: 200 }}
-          >
-            <option value="">{t('compose.filterAll')}</option>
-            <option value="synced">{t('compose.statusSynced')}</option>
-            <option value="drift">{t('compose.statusDrift')}</option>
-            <option value="pending">{t('compose.statusPending')}</option>
-            <option value="error">{t('compose.statusError')}</option>
-            <option value="none">{t('compose.filterNoDeploy')}</option>
-          </Select>
-        </div>
+        <CollapsibleFilterPanel
+          activeCount={[query.trim(), statusFilter].filter(Boolean).length}
+          onClear={() => { setQuery(''); setStatusFilter(''); }}
+          headerExtra={(
+            <span className="sd-entity-muted" style={{ fontSize: 12 }}>
+              {filtered.length}/{projects.length}
+            </span>
+          )}
+        >
+          <div className="sd-form-row">
+            <Field label={t('compose.search')}>
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t('compose.search')}
+                aria-label={t('compose.search')}
+              />
+            </Field>
+            <Field label={t('compose.filterStatus')}>
+              <Select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                aria-label={t('compose.filterStatus')}
+              >
+                <option value="">{t('compose.filterAll')}</option>
+                <option value="synced">{t('compose.statusSynced')}</option>
+                <option value="drift">{t('compose.statusDrift')}</option>
+                <option value="pending">{t('compose.statusPending')}</option>
+                <option value="error">{t('compose.statusError')}</option>
+                <option value="none">{t('compose.filterNoDeploy')}</option>
+              </Select>
+            </Field>
+          </div>
+        </CollapsibleFilterPanel>
       ) : null}
 
       {projects.length === 0 ? (
@@ -345,6 +423,69 @@ export default function ComposePage() {
           </Panel>
         ))
       )}
+
+      <Modal open={importOpen} onClose={() => setImportOpen(false)} title={t('compose.importTitle')} wide>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <p className="sd-entity-muted" style={{ margin: 0, fontSize: 13 }}>{t('compose.importHint')}</p>
+          <div className="sd-form-row">
+            <Field label={t('compose.importPickAgent')}>
+              <Select
+                value={importAgentId}
+                onChange={(e) => setImportAgentId(e.target.value)}
+              >
+                <option value="">{t('common.none')}</option>
+                {onlineAgents.map((a) => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
+                ))}
+              </Select>
+            </Field>
+            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+              <Button
+                onClick={() => { void scanImport(); }}
+                disabled={!importAgentId || importScanning}
+              >
+                {importScanning ? t('compose.importScanning') : t('compose.importScan')}
+              </Button>
+            </div>
+          </div>
+          {onlineAgents.length === 0 ? (
+            <Alert>{t('compose.noOnlineAgents')}</Alert>
+          ) : null}
+          {!importScanning && discovered.length === 0 && importAgentId ? (
+            <EmptyState>{t('compose.importEmpty')}</EmptyState>
+          ) : null}
+          <div className="sd-entity-list">
+            {discovered.map((p) => (
+              <Panel key={p.projectName} className="sd-entity-card">
+                <div className="sd-entity-item">
+                  <div className="sd-entity-main">
+                    <div className="sd-entity-top">
+                      <strong className="sd-entity-name">{p.projectName}</strong>
+                      <span className="sd-entity-muted" style={{ fontSize: 12 }}>
+                        {t('compose.importServices', { count: String(p.services?.length || 0) })}
+                      </span>
+                    </div>
+                    <div className="sd-entity-meta">
+                      {p.alreadyImported ? t('compose.importAlready') : null}
+                      {!p.yamlText ? (p.error || t('compose.importNoYaml')) : (p.yamlSource || '')}
+                    </div>
+                  </div>
+                  <Button
+                    className="sd-btn-sm"
+                    disabled={!p.yamlText || p.alreadyImported || importBusy === p.projectName}
+                    onClick={() => { void importOne(p); }}
+                  >
+                    {importBusy === p.projectName ? t('compose.importImporting') : t('compose.importAction')}
+                  </Button>
+                </div>
+              </Panel>
+            ))}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Button variant="ghost" onClick={() => setImportOpen(false)}>{t('common.close')}</Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal open={open} onClose={() => setOpen(false)} title={editingId ? t('compose.edit') : t('compose.create')}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

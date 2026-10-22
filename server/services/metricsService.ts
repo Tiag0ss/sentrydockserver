@@ -72,10 +72,30 @@ function numOrNull(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function readAgentMeta(agentId: string): Record<string, unknown> {
+  const row = agentsRepo.findById(agentId);
+  if (!row?.metaJson) return {};
+  try {
+    const parsed = JSON.parse(row.metaJson) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Record which container IDs were present in the latest agent metrics snapshot. */
+function writeMetricsSnapshot(agentId: string, ts: number, containerIds: string[]) {
+  const meta = readAgentMeta(agentId);
+  meta.lastMetricsBatchTs = ts;
+  meta.lastMetricsContainerIds = containerIds;
+  agentsRepo.update(agentId, { metaJson: JSON.stringify(meta) });
+}
+
 export function ingestBatch(agentId: string, batch: MetricsBatch): number {
   const ts = Number(batch.ts) || Date.now();
   const containers = Array.isArray(batch.containers) ? batch.containers : [];
-  if (!containers.length) return 0;
 
   const rows = containers
     .filter((c) => c && (c.id || c.name))
@@ -103,7 +123,17 @@ export function ingestBatch(agentId: string, batch: MetricsBatch): number {
         : null,
     }));
 
-  if (!rows.length) return 0;
+  // Always refresh the live snapshot — including empty lists after containers are deleted.
+  writeMetricsSnapshot(agentId, ts, rows.map((r) => r.containerId));
+
+  if (!rows.length) {
+    try {
+      pruneAgent(agentId);
+    } catch (err) {
+      logger.warn('metrics prune failed', { agentId, err: err instanceof Error ? err.message : String(err) });
+    }
+    return 0;
+  }
 
   const inserted = db.transaction((tx) => {
     for (const row of rows) {
@@ -199,28 +229,45 @@ export function getAgentMetrics(
     .orderBy(asc(containerMetricSamples.ts))
     .all();
 
+  const meta = readAgentMeta(agentId);
+  const snapshotIdsRaw = meta.lastMetricsContainerIds;
+  const hasSnapshot = Array.isArray(snapshotIdsRaw);
+  const liveIds = hasSnapshot
+    ? new Set((snapshotIdsRaw as unknown[]).map((id) => String(id)))
+    : null;
+
+  // Empty snapshot from the agent = no live containers (do not resurrect ghosts).
+  if (liveIds && liveIds.size === 0) {
+    return { config: cfg, containers: [], from, to };
+  }
+
   const byContainer = new Map<string, typeof rows>();
   for (const r of rows) {
+    if (liveIds && !liveIds.has(r.containerId)) continue;
     const list = byContainer.get(r.containerId) || [];
     list.push(r);
     byContainer.set(r.containerId, list);
   }
 
-  // Also pick up latest-known containers that may have fallen outside the window
-  // by merging with the absolute latest sample per container_id.
-  const latestRows = db
-    .select()
-    .from(containerMetricSamples)
-    .where(eq(containerMetricSamples.agentId, agentId))
-    .orderBy(desc(containerMetricSamples.ts))
-    .all();
+  // Fill gaps: live containers with no samples inside the chart window still appear.
+  // Legacy (no snapshot): keep previous "latest known" merge.
+  {
+    const latestRows = db
+      .select()
+      .from(containerMetricSamples)
+      .where(eq(containerMetricSamples.agentId, agentId))
+      .orderBy(desc(containerMetricSamples.ts))
+      .all();
 
-  const seenLatest = new Set<string>();
-  for (const r of latestRows) {
-    if (seenLatest.has(r.containerId)) continue;
-    seenLatest.add(r.containerId);
-    if (!byContainer.has(r.containerId)) {
-      byContainer.set(r.containerId, [r]);
+    const seenLatest = new Set<string>();
+    for (const r of latestRows) {
+      if (seenLatest.has(r.containerId)) continue;
+      seenLatest.add(r.containerId);
+      if (liveIds && !liveIds.has(r.containerId)) continue;
+      if (!liveIds && byContainer.has(r.containerId)) continue;
+      if (!byContainer.has(r.containerId)) {
+        byContainer.set(r.containerId, [r]);
+      }
     }
   }
 

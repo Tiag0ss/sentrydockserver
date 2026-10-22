@@ -8,6 +8,7 @@ import { tt } from '@/lib/i18n/translate';
 import {
   PageHeader, Panel, EmptyState, Alert, Input, Select, Field, Button,
 } from '@/components/ui';
+import { CollapsibleFilterPanel } from '@/components/CollapsibleFilterPanel';
 import { IconButton, IconRefresh, IconOpen } from '@/components/IconActions';
 
 type LogItem = {
@@ -100,6 +101,7 @@ export default function LogsPage() {
   }, [qDraft]);
 
   const hasFilters = Boolean(q || action || actor || entity);
+  const activeFilterCount = [q, action, actor, entity].filter(Boolean).length;
 
   const counts = useMemo(() => ({
     total: items.length,
@@ -127,7 +129,18 @@ export default function LogsPage() {
         )}
       />
 
-      <Panel className="sd-logs-filters">
+      <CollapsibleFilterPanel
+        className="sd-logs-filters"
+        activeCount={activeFilterCount}
+        onClear={clearFilters}
+        clearLabel={t('logs.clearFilters')}
+        headerExtra={(
+          <span className="sd-entity-muted" style={{ fontSize: 12 }}>
+            {loading ? t('common.loading') : t('logs.resultCount', { count: String(counts.total) })}
+            {!loading && counts.danger > 0 ? ` · ${t('logs.dangerCount', { count: String(counts.danger) })}` : ''}
+          </span>
+        )}
+      >
         <div className="sd-form-row">
           <Field label={t('logs.search')}>
             <Input
@@ -161,18 +174,7 @@ export default function LogsPage() {
             </Select>
           </Field>
         </div>
-        <div className="sd-logs-filter-meta">
-          <span className="sd-entity-muted">
-            {loading ? t('common.loading') : t('logs.resultCount', { count: String(counts.total) })}
-            {!loading && counts.danger > 0 ? ` · ${t('logs.dangerCount', { count: String(counts.danger) })}` : ''}
-          </span>
-          {hasFilters ? (
-            <Button variant="ghost" className="sd-btn-sm" onClick={clearFilters}>
-              {t('logs.clearFilters')}
-            </Button>
-          ) : null}
-        </div>
-      </Panel>
+      </CollapsibleFilterPanel>
 
       {error ? <Alert>{error}</Alert> : null}
 

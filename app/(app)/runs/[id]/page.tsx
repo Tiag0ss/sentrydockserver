@@ -72,11 +72,12 @@ type RunDetail = {
   status: string;
   currentNodeId: string | null;
   flowId: string;
+  flowName?: string | null;
   dryRun?: boolean | number;
   context?: Record<string, unknown> | null;
   steps: RunStep[];
   branches: RunBranch[];
-  flow: { id: string; name: string; graph: RunGraph } | null;
+  flow: { id: string; name: string; graph: RunGraph; deleted?: boolean } | null;
   nodeStatuses: NodeStatusMap;
   parentRunId?: string | null;
   parent?: { id: string; flowId: string; flowName: string; status: string } | null;
@@ -503,14 +504,19 @@ export default function RunDetailPage() {
             {run.parent.flowName}
           </Link>
           {' ← '}
-          <span>{run.flow?.name || run.id.slice(0, 8)}</span>
+          <span>{run.flow?.name || run.flowName || run.id.slice(0, 8)}</span>
         </nav>
       )}
       <header style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        <h1 style={{ margin: 0 }}>{run.flow?.name || t('runs.runFallback', { id: run.id.slice(0, 8) })}</h1>
+        <h1 style={{ margin: 0 }}>
+          {run.flow?.name || run.flowName || t('runs.runFallback', { id: run.id.slice(0, 8) })}
+        </h1>
+        {run.flow?.deleted ? (
+          <span className="sd-entity-badge" style={{ color: 'var(--sd-muted)' }}>{t('runs.flowDeleted')}</span>
+        ) : null}
         <span style={{ color: 'var(--muted)', fontSize: 14 }} title={run.id}>{run.id.slice(0, 8)}…</span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
-          {run.flowId ? (
+          {run.flowId && !run.flow?.deleted ? (
             <ActionIconButton
               title={t('runs.editFlow')}
               onClick={() => router.push(`/flows?edit=${run.flowId}`)}

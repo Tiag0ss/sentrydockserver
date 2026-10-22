@@ -202,6 +202,10 @@ apiRouter.post('/flows/:id/duplicate', authRequired, requirePasswordOk, requireM
   res.status(201).json(result);
 }));
 
+apiRouter.post('/flows/:id/expand-update-graph', authRequired, requirePasswordOk, requireModify, asyncHandler(async (req, res) => {
+  res.json(await flowsService.expandUpdateFlowFromCheck(param(req), req.user!.username));
+}));
+
 apiRouter.post('/flows/import', authRequired, requirePasswordOk, requireModify, validateBody(createFlowSchema), asyncHandler(async (req, res) => {
   const result = await flowsService.importFlow(req.body, req.user!.username);
   res.status(201).json(result);
@@ -415,6 +419,19 @@ apiRouter.put('/settings/:key', authRequired, requirePasswordOk, requireModify, 
 apiRouter.get('/compose-projects', authRequired, requirePasswordOk, (_req, res) => {
   res.json(composeService.listComposeProjects());
 });
+
+apiRouter.get('/compose-projects/discover', authRequired, requirePasswordOk, requireModify, asyncHandler(async (req, res) => {
+  const agentId = String(req.query.agentId || '').trim();
+  if (!agentId) {
+    res.status(400).json({ error: 'agentId required' });
+    return;
+  }
+  res.json(await composeService.discoverComposeFromAgent(agentId));
+}));
+
+apiRouter.post('/compose-projects/import-discovered', authRequired, requirePasswordOk, requireModify, asyncHandler(async (req, res) => {
+  res.status(201).json(await composeService.importDiscoveredCompose(req.body || {}, req.user!.username));
+}));
 
 apiRouter.get('/compose-projects/:id', authRequired, requirePasswordOk, (req, res) => {
   res.json(composeService.getComposeProject(param(req)));

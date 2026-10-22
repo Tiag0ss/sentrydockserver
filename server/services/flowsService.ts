@@ -216,6 +216,24 @@ export async function duplicateFlow(id: string, actor: string) {
 export async function deleteFlow(id: string, actor: string) {
   const existing = flowsRepo.findById(id);
   if (!existing) throw new AppError(404, 'not found', 'not_found');
+  // Before removing the flow row, stamp name/graph onto runs that still lack snapshots
+  // so the executions list/detail keep working for deleted flows.
+  const { and, eq, isNull, or, sql } = await import('drizzle-orm');
+  const { db } = await import('../database/db');
+  const { flowRuns } = await import('../database/schema');
+  db.update(flowRuns)
+    .set({ flowName: existing.name })
+    .where(and(
+      eq(flowRuns.flowId, id),
+      or(isNull(flowRuns.flowName), sql`trim(${flowRuns.flowName}) = ''`),
+    ))
+    .run();
+  if (existing.graphJson) {
+    db.update(flowRuns)
+      .set({ graphJson: existing.graphJson })
+      .where(and(eq(flowRuns.flowId, id), isNull(flowRuns.graphJson)))
+      .run();
+  }
   flowsRepo.delete(id);
   await audit({ actor, action: 'flow.deleted', entity: 'flow', entityId: id });
 }
@@ -281,7 +299,6 @@ function buildContainerUpdateGraph(opts: {
   const joinId = `n-${ts}-join`;
   const notifyOkId = `n-${ts}-ok`;
   const notifyFailId = `n-${ts}-fail`;
-  const notifyNoId = `n-${ts}-nou`;
   const notifyErrId = `n-${ts}-err`;
   const ifAfterJoinId = `n-${ts}-if-join`;
 
@@ -382,21 +399,9 @@ function buildContainerUpdateGraph(opts: {
       },
     },
     {
-      id: notifyNoId,
-      type: 'notify',
-      position: { x: 280, y: baseY + Math.max(opts.targets.length, 1) * laneGapY + 40 },
-      data: {
-        label: 'No update',
-        nodeType: 'notify',
-        retries: 0,
-        message: `${opts.imageLabel}: no updates ({{image}}).`,
-        level: 'info',
-      },
-    },
-    {
       id: notifyErrId,
       type: 'notify',
-      position: { x: 280, y: baseY + Math.max(opts.targets.length, 1) * laneGapY + 180 },
+      position: { x: 280, y: baseY + Math.max(opts.targets.length, 1) * laneGapY + 40 },
       data: {
         label: 'Error',
         nodeType: 'notify',
@@ -409,7 +414,7 @@ function buildContainerUpdateGraph(opts: {
 
   const edges: FlowEdgeOut[] = [
     { id: `e-${ts}-upd`, source: checkId, target: approvalId, sourceHandle: 'update' },
-    { id: `e-${ts}-nou`, source: checkId, target: notifyNoId, sourceHandle: 'no_update' },
+    // no_update: no notify — silent end when nothing to update
     { id: `e-${ts}-err`, source: checkId, target: notifyErrId, sourceHandle: 'error' },
     { id: `e-${ts}-appr`, source: approvalId, target: splitId, sourceHandle: 'out' },
     { id: `e-${ts}-join`, source: joinId, target: ifAfterJoinId, sourceHandle: 'out' },
@@ -670,6 +675,128 @@ export async function createUpdateFlowFromImage(
     composeCount,
     recreateCount,
     warnings,
+  };
+}
+
+function nodeTypeOf(n: { type?: string; data?: Record<string, unknown> }): string {
+  return String(n.type || n.data?.nodeType || '');
+}
+
+/**
+ * Expand a check-only (or check-centric) flow into the full auto-update graph,
+ * using the check node's imageId + selected targets.
+ */
+export async function expandUpdateFlowFromCheck(flowId: string, actor: string) {
+  const existing = flowsRepo.findById(flowId);
+  if (!existing) throw new AppError(404, 'flow not found', 'not_found');
+
+  const current = migrateFlowGraph(JSON.parse(existing.graphJson || '{"nodes":[],"edges":[]}'));
+  const checkNodes = current.nodes.filter((n) => nodeTypeOf(n) === 'check_image_update');
+  if (checkNodes.length !== 1) {
+    throw new AppError(
+      400,
+      'Flow must contain exactly one Check update node to expand',
+      'invalid_graph',
+    );
+  }
+  const check = checkNodes[0];
+  const imageId = String(check.data?.imageId || '').trim();
+  if (!imageId) {
+    throw new AppError(400, 'Check update node needs a catalog image', 'missing_image');
+  }
+
+  const rawTargets = Array.isArray(check.data?.targets) ? check.data.targets : [];
+  const selected = rawTargets
+    .map((t) => {
+      if (!t || typeof t !== 'object') return null;
+      const row = t as Record<string, unknown>;
+      const agentId = String(row.agentId || '').trim();
+      const containerName = String(row.containerName || '').trim();
+      if (!agentId || !containerName) return null;
+      return { agentId, containerName };
+    })
+    .filter(Boolean) as Array<{ agentId: string; containerName: string }>;
+
+  const { listRunningContainersForImage } = await import('./imagesService');
+  const { imagesRepo } = await import('../repositories/imagesRepo');
+  const { composeProjectsRepo } = await import('../repositories/composeRepo');
+
+  const row = imagesRepo.findById(imageId) || imagesRepo.findByKey(imageId);
+  if (!row) throw new AppError(404, 'image not found', 'not_found');
+
+  const composeByName = new Map(
+    composeProjectsRepo.list().map((p) => [p.name.toLowerCase(), p]),
+  );
+
+  const running = await listRunningContainersForImage(row.id);
+  const discovered = new Map<string, UpdateTarget>();
+  for (const ag of running.agents) {
+    if (!ag.online) continue;
+    for (const c of ag.containers) {
+      const id = `${ag.agentId}:${c.name}`;
+      const composeName = c.composeProject ? String(c.composeProject).trim() : '';
+      const matched = composeName
+        ? composeByName.get(composeName.toLowerCase())
+        : undefined;
+      discovered.set(id, {
+        id,
+        agentId: ag.agentId,
+        containerName: c.name,
+        composeProject: composeName || null,
+        composeProjectId: matched?.id || null,
+      });
+    }
+  }
+
+  let targets: UpdateTarget[];
+  if (selected.length) {
+    targets = [];
+    for (const s of selected) {
+      const id = `${s.agentId}:${s.containerName}`;
+      const hit = discovered.get(id);
+      if (hit) {
+        targets.push(hit);
+      } else {
+        // Offline / not rediscovered — still keep the selection as recreate lane
+        targets.push({
+          id,
+          agentId: s.agentId,
+          containerName: s.containerName,
+          composeProject: null,
+          composeProjectId: null,
+        });
+      }
+    }
+  } else {
+    targets = [...discovered.values()];
+  }
+
+  const imageLabel = `${row.key} (${row.repository})`;
+  const graph = buildContainerUpdateGraph({
+    imageId: row.id,
+    imageLabel,
+    targets,
+  });
+
+  await updateFlow(flowId, { graph }, actor);
+  await audit({
+    actor,
+    action: 'flow.expanded_from_check',
+    entity: 'flow',
+    entityId: flowId,
+    payload: {
+      imageId: row.id,
+      targets: targets.length,
+      previousNodes: current.nodes.length,
+    },
+  });
+
+  return {
+    flow: serializeFlow(flowsRepo.findById(flowId)),
+    targetsCount: targets.length,
+    warnings: targets.length
+      ? []
+      : ['No containers selected or discovered — template lane left empty for wiring.'],
   };
 }
 

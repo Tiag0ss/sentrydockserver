@@ -29,13 +29,32 @@ function flowNameMap(): Map<string, string> {
   return map;
 }
 
+function resolveRunFlowName(
+  r: { flowId: string; flowName?: string | null },
+  names: Map<string, string>,
+): string {
+  const stored = r.flowName != null ? String(r.flowName).trim() : '';
+  if (stored) return stored;
+  return names.get(r.flowId) || r.flowId.slice(0, 8);
+}
+
 function enrichRun<T extends {
   id: string;
   flowId: string;
+  flowName?: string | null;
   currentNodeId?: string | null;
   contextJson?: string | null;
+  graphJson?: string | null;
 }>(r: T, names: Map<string, string>, graphs?: Map<string, { nodes: Array<{ id: string; type?: string; data?: Record<string, unknown> }> }>) {
-  const graph = graphs?.get(r.flowId);
+  // Prefer the run's frozen graph for current-node labels when the live flow is gone.
+  let graph = graphs?.get(r.flowId);
+  if (!graph && r.graphJson) {
+    try {
+      graph = JSON.parse(r.graphJson) as { nodes: Array<{ id: string; type?: string; data?: Record<string, unknown> }> };
+    } catch {
+      graph = undefined;
+    }
+  }
   const node = r.currentNodeId && graph
     ? graph.nodes.find((n) => n.id === r.currentNodeId)
     : undefined;
@@ -50,7 +69,7 @@ function enrichRun<T extends {
 
   return {
     ...r,
-    flowName: names.get(r.flowId) || r.flowId.slice(0, 8),
+    flowName: resolveRunFlowName(r, names),
     context: r.contextJson ? JSON.parse(r.contextJson) : null,
     currentNodeType: currentNodeType || null,
     currentNodeLabel,
@@ -138,8 +157,10 @@ export function getRun(id: string) {
   const run = runsRepo.findById(id);
   if (!run) throw new AppError(404, 'not found', 'not_found');
   const flow = flowsRepo.findById(run.flowId);
-  const graph = flow?.graphJson
-    ? JSON.parse(flow.graphJson) as {
+  // Prefer the graph frozen at run start; fall back to live flow for legacy runs.
+  const graphSource = run.graphJson || flow?.graphJson;
+  const graph = graphSource
+    ? JSON.parse(graphSource) as {
       nodes: Array<{ id: string; type?: string; data?: Record<string, unknown> }>;
       edges: unknown[];
     }
@@ -204,15 +225,24 @@ export function getRun(id: string) {
     .map((c) => ({
       id: c.id,
       flowId: c.flowId,
-      flowName: names.get(c.flowId) || c.flowId.slice(0, 8),
+      flowName: resolveRunFlowName(c, names),
       status: c.status,
       parentStepId: c.parentStepId,
       startedAt: c.startedAt,
       finishedAt: c.finishedAt,
     }));
 
+  const flowName = resolveRunFlowName(run, names);
+  // When the live flow was deleted, still expose name + frozen graph for the detail UI.
+  const flowPayload = flow
+    ? { id: flow.id, name: flow.name, graph, deleted: false as const }
+    : (run.graphJson || run.flowName)
+      ? { id: run.flowId, name: flowName, graph, deleted: true as const }
+      : null;
+
   return {
     ...run,
+    flowName,
     context: runContext,
     steps,
     branches,
@@ -222,14 +252,12 @@ export function getRun(id: string) {
       ? {
         id: parentRow.id,
         flowId: parentRow.flowId,
-        flowName: names.get(parentRow.flowId) || parentRow.flowId.slice(0, 8),
+        flowName: resolveRunFlowName(parentRow, names),
         status: parentRow.status,
       }
       : null,
     children,
-    flow: flow
-      ? { id: flow.id, name: flow.name, graph }
-      : null,
+    flow: flowPayload,
     nodeStatuses: statusByNode,
   };
 }
@@ -782,14 +810,14 @@ export function listLogs(opts: {
   });
 
   const runIds = [...new Set(rows.map((r) => r.flowRunId).filter(Boolean))] as string[];
+  const names = flowNameMap();
   const flowByRun = new Map<string, { flowId: string; flowName: string }>();
   for (const runId of runIds) {
     const run = runsRepo.findById(runId);
     if (!run) continue;
-    const flow = flowsRepo.findById(run.flowId);
     flowByRun.set(runId, {
       flowId: run.flowId,
-      flowName: flow?.name || run.flowId.slice(0, 8),
+      flowName: resolveRunFlowName(run, names),
     });
   }
 
@@ -857,10 +885,11 @@ export function getDashboard() {
   const graphs = flowGraphMap();
   const active = runsRepo.active();
   const history = runsRepo.list('history').slice(0, 200);
+  // Ordered by next execution; UI paginates — keep a generous cap for the dashboard payload.
   const upcoming = flowsRepo.listScheduled()
     .filter((f) => f.nextRunAt)
     .sort((a, b) => (a.nextRunAt!.getTime() - b.nextRunAt!.getTime()))
-    .slice(0, 20)
+    .slice(0, 200)
     .map((f) => ({
       id: f.id,
       name: f.name,

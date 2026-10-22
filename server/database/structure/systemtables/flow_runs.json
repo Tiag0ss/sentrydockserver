@@ -13,6 +13,11 @@
       "NotNullable": true
     },
     {
+      "FieldName": "flow_name",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
       "FieldName": "status",
       "DataType": "varchar(64)",
       "NotNullable": true
@@ -34,6 +39,11 @@
     },
     {
       "FieldName": "context_json",
+      "DataType": "text",
+      "NotNullable": false
+    },
+    {
+      "FieldName": "graph_json",
       "DataType": "text",
       "NotNullable": false
     },

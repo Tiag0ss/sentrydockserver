@@ -566,6 +566,57 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
     a.click();
   }
 
+  const canExpandUpdate = useMemo(() => {
+    const checks = nodes.filter((n) => String(n.data?.nodeType || '') === 'check_image_update');
+    if (checks.length !== 1) return false;
+    return Boolean(String(checks[0].data?.imageId || '').trim());
+  }, [nodes]);
+
+  async function expandUpdateFlow() {
+    if (!flowId) {
+      setMsg(t('flows.expandUpdateFlowNeedSave'));
+      return;
+    }
+    if (!canExpandUpdate) {
+      setMsg(t('flows.expandUpdateFlowNeedCheck'));
+      return;
+    }
+    if (nodes.length > 1 && !window.confirm(t('flows.expandUpdateFlowConfirm'))) return;
+    try {
+      const res = await api<{
+        flow: { graph: { nodes: Array<Record<string, unknown>>; edges: Array<Record<string, unknown>> } };
+        targetsCount: number;
+        warnings?: string[];
+      }>(`/flows/${flowId}/expand-update-graph`, { method: 'POST', body: '{}' });
+      const graph = res.flow?.graph;
+      if (graph?.nodes) {
+        setNodes(toFlowNodes(graph.nodes as Parameters<typeof toFlowNodes>[0], nodeLabel));
+        setEdges(toFlowEdges(
+          (graph.edges || []) as Parameters<typeof toFlowEdges>[0],
+          toFlowNodes(graph.nodes as Parameters<typeof toFlowNodes>[0], nodeLabel),
+          edgePortLabel,
+        ));
+        setSelectedNode(null);
+      }
+      const warn = res.warnings?.length ? ` ${res.warnings[0]}` : '';
+      setMsg(`${t('flows.expandUpdateFlowDone', { count: String(res.targetsCount ?? 0) })}${warn}`);
+      onSaved({
+        id: flowId,
+        name,
+        description: initial?.description ?? null,
+        updatedAt: new Date().toISOString(),
+        graph: graph as FlowSummary['graph'],
+        scheduleEnabled,
+        cron: scheduleEnabled ? cron : null,
+        timezone,
+        blackoutStart: blackoutStart || null,
+        blackoutEnd: blackoutEnd || null,
+      });
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : t('common.error'));
+    }
+  }
+
   async function importFlow(file: File) {
     const data = JSON.parse(await file.text());
     const res = await api<{ id: string }>('/flows/import', { method: 'POST', body: JSON.stringify(data) });
@@ -662,6 +713,15 @@ function FlowCanvas({ initial, onBack, onSaved }: CanvasProps) {
         <button type="button" onClick={() => void save()} style={btnStyle}>{t('common.save')}</button>
         <button type="button" onClick={() => void run(false)} style={btnStyle}>{t('flows.run')}</button>
         <button type="button" onClick={() => void run(true)} style={btnSecondaryStyle}>{t('flows.dryRun')}</button>
+        <button
+          type="button"
+          onClick={() => { void expandUpdateFlow(); }}
+          style={btnSecondaryStyle}
+          disabled={!canExpandUpdate}
+          title={t('flows.expandUpdateFlowHint')}
+        >
+          {t('flows.expandUpdateFlow')}
+        </button>
         <button type="button" onClick={() => void exportFlow()} style={btnSecondaryStyle}>{t('flows.export')}</button>
         <label style={{ ...btnSecondaryStyle, display: 'inline-block', cursor: 'pointer' }}>
           {t('flows.import')}

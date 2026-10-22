@@ -81,11 +81,15 @@ export const updatePolicies = sqliteTable('update_policies', {
 export const flowRuns = sqliteTable('flow_runs', {
   id: text('id').primaryKey(),
   flowId: text('flow_id').notNull(),
+  /** Snapshot of the flow name at run start (survives flow delete/rename). */
+  flowName: text('flow_name'),
   status: text('status').notNull(),
   triggerSource: text('trigger_source').notNull(), // cron | manual | webhook | resume | subflow
   lockKey: text('lock_key'),
   currentNodeId: text('current_node_id'),
   contextJson: text('context_json'),
+  /** Snapshot of the flow graph at run start (immutable for the run). */
+  graphJson: text('graph_json'),
   dryRun: integer('dry_run', { mode: 'boolean' }).notNull().default(false),
   summary: text('summary'),
   startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),

@@ -25,8 +25,8 @@ type Props = {
 
 type MenuBox = { top: number; left: number; width: number; maxHeight: number };
 
-/** Above modals (.sd-modal-overlay is z-index 100). */
-const DROPDOWN_Z = 200;
+/** Above modals (.sd-modal-overlay is z-index 1000). */
+const DROPDOWN_Z = 1100;
 
 export function SearchSelect({
   label,

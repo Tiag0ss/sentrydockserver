@@ -112,6 +112,73 @@ export async function createComposeProject(input: { name: string; yamlText: stri
   return getComposeProject(id);
 }
 
+export type DiscoveredComposeProject = {
+  projectName: string;
+  services: string[];
+  configFiles: string[];
+  workingDir: string | null;
+  yamlText: string | null;
+  yamlSource: 'file' | 'compose_config' | null;
+  error?: string;
+  alreadyImported: boolean;
+};
+
+/** Ask an online agent for Compose projects visible on its Docker host. */
+export async function discoverComposeFromAgent(agentId: string): Promise<{
+  agentId: string;
+  agentName: string;
+  projects: DiscoveredComposeProject[];
+}> {
+  const agent = agentsRepo.findById(agentId);
+  if (!agent) throw new AppError(404, 'agent not found', 'not_found');
+  if (!agentGateway.isOnline(agentId)) {
+    throw new AppError(409, 'agent offline', 'agent_offline');
+  }
+  const res = await agentGateway.sendCommand(
+    agentId,
+    'docker.compose.discover',
+    {},
+    90_000,
+  ) as { projects?: DiscoveredComposeProject[] };
+
+  const existing = new Set(
+    composeProjectsRepo.list().map((p) => p.name.toLowerCase()),
+  );
+  const projects = (Array.isArray(res.projects) ? res.projects : []).map((p) => ({
+    ...p,
+    alreadyImported: existing.has(String(p.projectName || '').toLowerCase()),
+  }));
+
+  return { agentId, agentName: agent.name, projects };
+}
+
+/** Import a discovered Compose YAML into the catalog (optionally rename on conflict). */
+export async function importDiscoveredCompose(
+  input: { name?: string; yamlText: string; sourceProjectName?: string; agentId?: string },
+  actor: string,
+) {
+  const yamlText = String(input.yamlText || '').trim();
+  if (!yamlText) throw new AppError(400, 'yamlText required', 'validation');
+  let name = String(input.name || input.sourceProjectName || '').trim();
+  if (!name) throw new AppError(400, 'name required', 'validation');
+  if (composeProjectsRepo.findByName(name)) {
+    name = uniqueComposeCopyName(name);
+  }
+  const created = await createComposeProject({ name, yamlText }, actor);
+  await audit({
+    actor,
+    action: 'compose.imported_from_agent',
+    entity: 'compose_project',
+    entityId: created.id,
+    payload: {
+      sourceProjectName: input.sourceProjectName || null,
+      agentId: input.agentId || null,
+      finalName: name,
+    },
+  });
+  return created;
+}
+
 export async function updateComposeProject(
   id: string,
   input: { name?: string; yamlText?: string },
@@ -301,6 +368,16 @@ export async function deployComposeProject(
   return { projectId: id, results, project: getComposeProject(id) };
 }
 
+function composeServicesRunning(services: unknown[] | undefined): boolean {
+  if (!Array.isArray(services) || services.length === 0) return false;
+  return services.some((s) => {
+    if (!s || typeof s !== 'object') return false;
+    const row = s as Record<string, unknown>;
+    const state = String(row.State || row.Status || '').toLowerCase();
+    return state.includes('running') || /(^|\s)up(\s|$)/.test(state);
+  });
+}
+
 export async function checkComposeProject(id: string, agentIds?: string[]) {
   const project = composeProjectsRepo.findById(id);
   if (!project) throw new AppError(404, 'compose project not found', 'not_found');
@@ -339,8 +416,12 @@ export async function checkComposeProject(id: string, agentIds?: string[]) {
       ) as { exists?: boolean; services?: unknown[]; error?: string; projectPath?: string };
 
       const existing = composeStatesRepo.find(id, agentId);
+      const services = Array.isArray(res.services) ? res.services : [];
+      const running = composeServicesRunning(services);
       let status = 'absent';
-      if (!res.exists) status = 'absent';
+      // Synced requires the YAML on disk, matching hash, AND a live stack.
+      // File present after `compose down` / deleted containers must not stay "synced".
+      if (!res.exists || !running) status = 'absent';
       else if (existing?.appliedHash && existing.appliedHash === desiredHash) status = 'synced';
       else if (existing?.appliedHash) status = 'drift';
       else status = 'drift';
@@ -350,7 +431,7 @@ export async function checkComposeProject(id: string, agentIds?: string[]) {
         status,
         lastCheckedAt: new Date(),
         lastError: res.error || null,
-        servicesJson: JSON.stringify(res.services || []),
+        servicesJson: JSON.stringify(services),
       });
       results.push({
         agentId,
@@ -399,7 +480,6 @@ function buildBasicComposeUpdateGraph(opts: {
   const joinId = `join-${ts}`;
   const notifyOkId = `notify-ok-${ts}`;
   const notifyFailId = `notify-fail-${ts}`;
-  const notifyNoId = `notify-noop-${ts}`;
   const notifyErrId = `notify-err-${ts}`;
   const ifAfterJoinId = `if-join-${ts}`;
   const laneGapY = 160;
@@ -495,21 +575,9 @@ function buildBasicComposeUpdateGraph(opts: {
       },
     },
     {
-      id: notifyNoId,
-      type: 'notify',
-      position: { x: 280, y: baseY + Math.max(opts.targets.length, 1) * laneGapY + 40 },
-      data: {
-        label: 'No update',
-        nodeType: 'notify',
-        retries: 0,
-        message: `Compose «${opts.projectName}»: no updates ({{image}}).`,
-        level: 'info',
-      },
-    },
-    {
       id: notifyErrId,
       type: 'notify',
-      position: { x: 280, y: baseY + Math.max(opts.targets.length, 1) * laneGapY + 180 },
+      position: { x: 280, y: baseY + Math.max(opts.targets.length, 1) * laneGapY + 40 },
       data: {
         label: 'Error',
         nodeType: 'notify',
@@ -522,7 +590,7 @@ function buildBasicComposeUpdateGraph(opts: {
 
   const edges: FlowEdgeOut[] = [
     { id: `e-${ts}-upd`, source: checkId, target: approvalId, sourceHandle: 'update' },
-    { id: `e-${ts}-nou`, source: checkId, target: notifyNoId, sourceHandle: 'no_update' },
+    // no_update: no notify — silent end when nothing to update
     { id: `e-${ts}-err`, source: checkId, target: notifyErrId, sourceHandle: 'error' },
     { id: `e-${ts}-appr`, source: approvalId, target: splitId, sourceHandle: 'out' },
     { id: `e-${ts}-join`, source: joinId, target: ifAfterJoinId, sourceHandle: 'out' },
